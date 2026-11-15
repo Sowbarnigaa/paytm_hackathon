@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paytm for Business - VyaparConnect AI</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%2300296b%27/%3E%3Ctext x=%2716%27 y=%2722%27 font-size=%2716%27 font-family=%27Arial%27 font-weight=%27700%27 fill=%27%2300b9f5%27 text-anchor=%27middle%27%3EVC%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
 <a class="skip" href="#app">Skip to content</a>
@@ -18,13 +18,13 @@
     <input name="q" placeholder="Search groups, merchants, products" aria-label="Search groups, merchants and products" autocomplete="off">
   </form>
   <div class="who">
+    <label for="userSel" class="sr">Demo user</label>
+    <select id="userSel" aria-label="Switch demo user"></select>
+    <button class="btn ghost sm" data-a="reset" title="Reset demo data">Reset</button>
     <button class="bell" data-a="gotoNotifs" aria-label="Notifications">
       <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v4l-2 3h16l-2-3V9a6 6 0 0 0-6-6zm-2 15a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
       <span id="bellN" class="dotn" hidden>0</span>
     </button>
-    <label for="userSel" class="sr">Demo user</label>
-    <select id="userSel" aria-label="Switch demo user"></select>
-    <button class="btn ghost sm" data-a="reset" title="Reset demo data">Reset</button>
   </div>
 </header>
 <div class="shell">
@@ -33,10 +33,10 @@
 </div>
 <div id="modal" class="modal-bg" hidden></div>
 <div id="toast" class="toast" role="status" hidden></div>
-<script src="/static/auth.js"></script>
-<script src="/static/core.js"></script>
-<script src="/static/views_a.js"></script>
-<script src="/static/views_b.js"></script>
-<script src="/static/boot.js"></script>
+<script src="/static/auth.js?v=3"></script>
+<script src="/static/core.js?v=3"></script>
+<script src="/static/views_a.js?v=3"></script>
+<script src="/static/views_b.js?v=3"></script>
+<script src="/static/boot.js?v=3"></script>
 </body>
 </html>

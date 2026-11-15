@@ -677,6 +677,50 @@ document.addEventListener("click", async e => {
     return;
   }
 
+  if (a === "openBuySaleModal") {
+    const sid = Number(btn.dataset.id);
+    const prod = btn.dataset.p || "";
+    modal(html`
+      <h3>Buy Directly: ${prod}</h3>
+      <p class="sm muted">Purchase directly from this wholesaler's tiered sale. Price is determined by your chosen quantity tier.</p>
+      <form data-f="buySale" data-sid="${sid}" class="form col mt">
+        <div class="field">
+          <label for="buyQty">Purchase Quantity</label>
+          <input id="buyQty" name="qty" type="number" min="1" step="any" value="50" required>
+        </div>
+        <button class="btn cyan mt">Place Direct Order</button>
+      </form>
+    `);
+    return;
+  }
+
+  if (a === "openStartPoolModal") {
+    const sid = Number(btn.dataset.id);
+    const prod = btn.dataset.p || "";
+    await act(async () => {
+      const gs = await api("/groups");
+      const mine = gs.filter(g => g.my_status === "active");
+      if (mine.length === 0) {
+        toast("You must join or create a group first to start a group pool!", true);
+        return;
+      }
+      modal(html`
+        <h3>Start Group Pool: ${prod}</h3>
+        <p class="sm muted">Select one of your groups to launch a pooled group purchase. Other group members can join to unlock lower tiers!</p>
+        <form data-f="startPool" data-sid="${sid}" class="form col mt">
+          <div class="field">
+            <label for="poolGroup">Select Group</label>
+            <select id="poolGroup" name="group_id" required>
+              ${mine.map(g => html`<option value="${g.id}">${g.name}</option>`)}
+            </select>
+          </div>
+          <button class="btn cyan mt">Start Pool</button>
+        </form>
+      `);
+    });
+    return;
+  }
+
   if (a === "openNewGroupModal") {
     modal(html`
       <h3>Create New Buying Group</h3>
@@ -1004,17 +1048,21 @@ document.addEventListener("submit", async e => {
   if (f === "combineMerchants") {
     const gid = form.dataset.gid ? Number(form.dataset.gid) : null;
     const checked = $$("#merchantPopupList input[type=checkbox]:checked");
-    if (checked.length === 0) {
+    if (!gid && checked.length === 0) {
       toast("Please select at least one merchant", true);
       return;
     }
     await act(async () => {
       if (gid) {
-        for (const cb of checked) {
-          const uid = Number(cb.value);
-          await api(`/groups/${gid}/invite`, "POST", { user_id: uid }).catch(() => {});
+        if (checked.length > 0) {
+          for (const cb of checked) {
+            const uid = Number(cb.value);
+            await api(`/groups/${gid}/invite`, "POST", { user_id: uid }).catch(() => {});
+          }
+          toast(`Invitations sent to ${checked.length} merchants!`);
+        } else {
+          toast("Group created! You can invite members later.");
         }
-        toast(`Invitations sent to ${checked.length} merchants!`);
         closeModal();
         await render();
       } else {
@@ -1108,6 +1156,34 @@ document.addEventListener("submit", async e => {
       await api("/wholesaler/inventory", "POST", { product, stock_qty, price, floor_price });
       toast(`Updated catalog for ${product}!`);
       closeModal();
+      await render();
+    });
+    return;
+  }
+
+  if (f === "buySale") {
+    const sid = Number(form.dataset.sid);
+    const qty = Number(form.qty.value);
+    await act(async () => {
+      const res = await api(`/sales/${sid}/buy`, "POST", { qty });
+      toast(`Order #${res.order_id} placed! Awaiting wholesaler delivery quote.`);
+      closeModal();
+      S.tab = "orders";
+      await render();
+    });
+    return;
+  }
+
+  if (f === "startPool") {
+    const sid = Number(form.dataset.sid);
+    const group_id = Number(form.group_id.value);
+    await act(async () => {
+      const res = await api(`/sales/${sid}/pools`, "POST", { group_id });
+      toast("Group pool started successfully! Invite other merchants to commit.");
+      closeModal();
+      S.gid = group_id;
+      S.tab = "groups";
+      S.gtab = "deals";
       await render();
     });
     return;

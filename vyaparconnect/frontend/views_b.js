@@ -212,9 +212,9 @@ async function vAI() {
         <div class="sm muted">Multilingual natural language procurement, autonomous Faratin price negotiation, and exponential smoothing demand forecast.</div>
       </div>
     </div>
-    <div class="sub mb">
+    <div class="tabs mb">
       ${subs.map(([k, l]) => html`
-        <button class="${S.aiTab === k ? "on" : ""}" data-a="aiTab" data-v="${k}">${l}</button>
+        <button class="tab ${S.aiTab === k ? "on" : ""}" data-a="aiTab" data-v="${k}">${l}</button>
       `)}
     </div>
   `;
@@ -700,6 +700,17 @@ async function vStock() {
 async function vNotifications() {
   const notifs = await api("/notifications");
   const items = notifs.items || [];
+
+  // Automatically mark all notifications as read when viewing this page
+  const unreadCount = items.filter(n => !n.is_read).length;
+  if (unreadCount > 0) {
+    try {
+      await api("/notifications/read", "POST", {});
+      await loadMe();
+    } catch (e) {
+      console.error("Failed to auto-mark notifications as read", e);
+    }
+  }
 
   return html`
     <div class="spread mb">

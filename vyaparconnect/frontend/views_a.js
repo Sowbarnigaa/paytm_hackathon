@@ -245,15 +245,6 @@ async function vHome() {
         </div>
       </div>
     ` : ""}
-
-    <h2>Recommended groups for you</h2>
-    ${recs.length === 0 ? html`
-      <div class="card"><p class="muted">No new matching groups in your city yet. You can create a new group in the Groups tab.</p></div>
-    ` : html`
-      <div class="grid g2">
-        ${recs.map(g => groupCard({ ...g, my_status: null, is_admin: false }, true))}
-      </div>
-    `}
   `;
 }
 
@@ -404,9 +395,13 @@ function nearbyMerchantsModalContent(list, gid = null) {
 // ------------------------------------------------------------------ GROUPS
 async function vGroups() {
   if (S.gid) return vGroup(S.gid);
-  const gs = await api("/groups");
+  const [gs, recsData] = await Promise.all([
+    api("/groups"),
+    api("/groups/recommendations")
+  ]);
   const mine = gs.filter(g => g.my_status === "active");
   const others = gs.filter(g => g.my_status !== "active");
+  const recs = recsData.groups || [];
 
   return html`
     <div class="spread mb">
@@ -423,6 +418,13 @@ async function vGroups() {
     ` : html`
       <div class="grid g2 mb">${mine.map(g => groupCard(g))}</div>
     `}
+
+    ${recs.length > 0 ? html`
+      <h3 class="mt">🤖 Recommended Groups for You</h3>
+      <div class="grid g2 mb">
+        ${recs.map(g => groupCard({ ...g, my_status: null, is_admin: false }, true))}
+      </div>
+    ` : ""}
 
     <h3 class="mt">Discover & Join Groups</h3>
     ${others.length === 0 ? html`
@@ -517,9 +519,9 @@ async function vGroup(gid) {
       </div>
     </div>
 
-    <div class="sub mb">
+    <div class="tabs mb">
       ${subs.map(([k, l]) => html`
-        <button class="${S.gtab === k ? "on" : ""}" data-a="gtab" data-v="${k}">${l}</button>
+        <button class="tab ${S.gtab === k ? "on" : ""}" data-a="gtab" data-v="${k}">${l}</button>
       `)}
     </div>
 
