@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["VC_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
+os.environ["VC_DEMO_AUTH"] = "1"          # this suite drives the API with the X-User-Id role switcher; see test_auth.py for real login
 
 from app import ai, db, seed  # noqa: E402
 from app.main import app  # noqa: E402
@@ -435,7 +436,8 @@ def test_review_flow_updates_rating_and_blocks_duplicates(c):
 
 
 def test_trust_score_is_gone_everywhere(c):
-    for u in ok(c.get("/api/users")):
+    for u in ok(c.get("/api/users", headers=H(RAVI))):
+        assert "password_hash" not in u and "email" not in u            # the directory never exposes credentials or contact email
         assert "trust" not in u and 0 <= u["rating_avg"] <= 5
     me = ok(c.get("/api/me", headers=H(RAVI)))
     assert "trust" not in me and me["rating_avg"] == 4.2
@@ -481,4 +483,4 @@ def test_wholesaler_inventory_and_floor_validation(c):
 
 def test_unknown_user_is_rejected(c):
     assert c.get("/api/me", headers=H(9999)).status_code == 401
-    assert c.get("/api/me").status_code == 422
+    assert c.get("/api/me").status_code == 401

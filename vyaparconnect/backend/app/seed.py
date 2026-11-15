@@ -4,7 +4,14 @@ import json
 import random
 from datetime import date, datetime, timedelta, timezone
 
-from . import db
+from . import auth, db
+
+DEMO_PASSWORD = "Demo@1234"                       # every seeded demo account signs in with this (demo data only)
+_DEMO_HASH = auth.hash_password(DEMO_PASSWORD)    # hashed once - scrypt is deliberately slow
+
+
+def demo_email(name: str) -> str:
+    return name.split()[0].lower() + "@example.com"     # e.g. ravi@example.com, murugan@example.com
 
 PRODUCTS = [
     ("Rice", "kg", 55, "grocery", 50), ("Sunflower Oil", "L", 130, "grocery", 20),
@@ -68,9 +75,9 @@ def seed() -> None:
 
         # ---- wholesalers, warehouses, inventory catalogue (price + private floor)
         for name, shop, city, cat, phone, whs, factor in WHOLESALERS:
-            wid = c.execute("INSERT INTO users(name,shop,role,city,category,phone,credit_score,on_time_rate)"
-                            " VALUES(?,?,?,?,?,?,750,?)", (name, shop, "wholesaler", city, cat, phone,
-                                                             round(rnd.uniform(0.92, 0.99), 2))).lastrowid
+            wid = c.execute("INSERT INTO users(name,shop,role,city,category,phone,credit_score,on_time_rate,email,password_hash,email_verified)"
+                            " VALUES(?,?,?,?,?,?,750,?,?,?,1)", (name, shop, "wholesaler", city, cat, phone,
+                                                                 round(rnd.uniform(0.92, 0.99), 2), demo_email(name), _DEMO_HASH)).lastrowid
             wh_ids = [c.execute("INSERT INTO warehouses(wholesaler_id,name,city,handling_days) VALUES(?,?,?,?)",
                                 (wid, n, wc, h)).lastrowid for n, wc, h in whs]
             for i, (pname, _u, bp, pc, _q) in enumerate([p for p in PRODUCTS]):
@@ -85,8 +92,9 @@ def seed() -> None:
         for name, shop, city, cat in MERCHANTS:
             score = rnd.choice([590, 640, 660, 690, 710, 735, 760, 790])
             ontime = round(min(0.99, max(0.6, 0.6 + (score - 580) / 600 + rnd.uniform(-0.05, 0.05))), 2)
-            c.execute("INSERT INTO users(name,shop,role,city,category,phone,credit_score,on_time_rate) VALUES(?,?,?,?,?,?,?,?)",
-                      (name, shop, "merchant", city, cat, f"98{rnd.randint(10000000, 99999999)}", score, ontime))
+            c.execute("INSERT INTO users(name,shop,role,city,category,phone,credit_score,on_time_rate,email,password_hash,email_verified)"
+                      " VALUES(?,?,?,?,?,?,?,?,?,?,1)",
+                      (name, shop, "merchant", city, cat, f"98{rnd.randint(10000000, 99999999)}", score, ontime, demo_email(name), _DEMO_HASH))
         c.execute("UPDATE users SET credit_score=712, on_time_rate=0.92 WHERE name='Ravi'")
         n_w, n_m = len(WHOLESALERS), len(MERCHANTS)
         merchant_ids = list(range(n_w + 1, n_w + n_m + 1))
