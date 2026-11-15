@@ -131,3 +131,4 @@ ok(true, "collusion post held for admin review");
 
 console.log("\nJS errors:", errors.length ? errors : "none");
 ws.close(); process.exit(errors.length ? 1 : 0);
+// End of file
