@@ -361,6 +361,11 @@ def loans(uid: int = UID):
     return credit.my_loans(uid)
 
 
+@app.post("/api/loans")
+def apply_loan(body: dict = Body(...), uid: int = UID):
+    return credit.create_loan(uid, float(body.get("amount", 0)), int(body.get("tenure", 3)), bool(body.get("autopay", True)), body.get("order_ids") or [])
+
+
 @app.post("/api/loans/{lid}/autopay")
 def autopay(lid: int, body: dict = Body(...), uid: int = UID):
     return credit.set_autopay(lid, uid, bool(body.get("on")))

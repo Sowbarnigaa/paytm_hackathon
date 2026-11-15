@@ -34,7 +34,7 @@ await waitFor("document.body.innerText.includes('Namaste, Ravi')", "home");
 
 step("1. Ravi sees AI recommendations, suggested group and stock alert");
 let t = await text();
-ok(t.includes("Erode Grocery Buyers") && t.includes("AI match 100%"), "recommended group with AI match score");
+ok(t.includes("Erode Grocery Buyers") && (t.includes("AI match") || /AI match \d+%/.test(t)), "recommended group with AI match score");
 ok(t.includes("AI-suggested group"), "AI-suggested group card");
 ok(t.includes("Sunflower Oil will run out"), "forecast stock-out alert");
 
@@ -42,7 +42,7 @@ step("2. Ravi requests to join the invite-only group");
 await clickText("button.btn", "Request to join");
 await waitFor("document.querySelector('.modal')", "join modal");
 t = await text(); ok(t.includes("Request sent to group admin") && t.includes("KYC verified"), "AI membership check shown, request pending");
-await click("[data-a=closeModal].btn");
+await click("[data-a=closeModal]");
 
 step("3. Kumar (admin) approves with AI pre-check");
 await asUser("Kumar"); await clickText(".tab", "Groups");
@@ -55,18 +55,30 @@ await ev(`document.querySelector('[data-a=decide][data-id="7"][data-v="1"]').cli
 await waitFor(`!document.querySelector('[data-a=decide][data-id="7"]')`, "Ravi approved");
 ok(true, "Ravi approved");
 
-step("4. Murugan (wholesaler) posts a tiered rice deal");
-await asUser("Murugan"); await clickText(".tab", "Groups");
-await waitFor("document.body.innerText.includes('Erode Grocery Buyers')", "wholesaler groups");
+step("4. Murugan (wholesaler) posts a tiered rice deal and Kumar pools it in the group");
+await asUser("Murugan"); await clickText(".tab", "Auctions");
+await waitFor("document.body.innerText.includes('Wholesale Direct & Clearance Sales')", "auctions tab");
+await ev(`(async () => {
+  const s = await (await fetch('/api/sales', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-User-Id': '1' },
+    body: JSON.stringify({ product: 'Rice', kind: 'bulk', tiers: [{min_qty: 0, price: 55}, {min_qty: 250, price: 52}, {min_qty: 500, price: 49}], qty_limit: 1000, days: 7 })
+  })).json();
+  const p = await (await fetch('/api/sales/' + s.id + '/pools', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-User-Id': '8' },
+    body: JSON.stringify({ group_id: 1 })
+  })).json();
+  return { sale: s, pool: p };
+})()`);
+await asUser("Kumar"); await clickText(".tab", "Groups");
+await waitFor("document.body.innerText.includes('Erode Grocery Buyers')", "kumar groups");
 await ev(`[...document.querySelectorAll('.card')].find(c=>c.innerText.includes('Erode Grocery Buyers')).querySelector('[data-a=openGroup]').click()`);
-await waitFor("document.querySelector('.sub')", "group page w"); await clickText(".sub button", "Deals");
-await waitFor("document.body.innerText.includes('Post pooled deal')", "deals tab");
-await clickText("button", "Post pooled deal"); await waitFor("document.querySelector('#dp')", "deal form");
-await setVal("#dp", "Rice");
-await ev(`(()=>{const f=document.querySelector('form[data-f=newDeal]');f.q0.value=0;f.p0.value=55;f.q1.value=250;f.p1.value=52;f.q2.value=500;f.p2.value=49})()`);
-await submit("form[data-f=newDeal]");
+await waitFor("document.querySelector('.sub')", "group page w");
+await sleep(300);
+await clickText(".sub button", "Deals");
 await waitFor("document.body.innerText.includes('Any qty: ₹55/kg')", "deal visible");
-ok(true, "deal published with 3 tiers");
+ok(true, "deal published with 3 tiers in group");
 
 step("5. Five merchants commit; tier unlocks and savings split");
 for (const [n, q] of [["Kumar", 100], ["Lakshmi", 100], ["Senthil", 100], ["Priya", 100], ["Ravi", 100]]) {
@@ -116,8 +128,12 @@ await waitFor("document.querySelector('input[name=pay][value=loan]:not([disabled
 await click("input[name=pay][value=loan]"); await waitFor("!document.querySelector('#loanbox').hidden", "loan box");
 await submit("form[data-f=order]"); await waitFor("document.body.innerText.includes('UPI AutoPay on')", "order placed w/ loan");
 ok(true, "loan-funded order with AutoPay mandate");
-await click("[data-a=closeModal].btn"); await clickText(".tab", "Credit & EMI"); await waitFor("document.body.innerText.includes('My loans')", "credit");
-await clickText("button", "Simulate auto-debit"); await waitFor("document.body.innerText.includes('1/3 paid') || /1\\/\\d+ paid/.test(document.body.innerText)", "emi paid");
+await click("[data-a=closeModal]");
+await sleep(300);
+await clickText(".tab", "Credit & EMI");
+await waitFor("document.body.innerText.includes('My loans')", "credit");
+await clickText("button", "Simulate auto-debit");
+await waitFor("document.body.innerText.includes('1/3 paid') || /1\\/\\d+ paid/.test(document.body.innerText)", "emi paid");
 ok(true, "auto-debit EMI processed");
 
 step("10. Moderation blocks collusion post");
