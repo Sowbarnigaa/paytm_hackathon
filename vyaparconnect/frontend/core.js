@@ -122,7 +122,6 @@ function tabsFor() {
   }
   return [
     ["home", "Dashboard"],
-    ["groups", "Groups"],
     ["auctions", "Auctions"],
     ["orders", "Orders"],
     ["inventory", "Inventory"]

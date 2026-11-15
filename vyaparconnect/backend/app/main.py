@@ -1,8 +1,11 @@
 """Paytm VyaparConnect AI - FastAPI app (v2). Serves the REST API and the single-page UI from one process.
 
-Auth is a demo role-switcher: the UI sends `X-User-Id`. Replace with Paytm SSO in production.
+Auth: email + password sign-up / sign-in, then `Authorization: Bearer <token>` (see auth.py).
+Set VC_DEMO_AUTH=1 to also accept the demo role-switcher header `X-User-Id` (and enable /api/reset).
 """
 import os
+import sqlite3
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -10,7 +13,7 @@ from fastapi import Body, Depends, FastAPI, Header, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import ai, credit, db, groups, market, merchant, orders, payments, seed
+from . import ai, auth, credit, db, groups, market, merchant, orders, payments, seed
 from .db import ApiError
 
 FRONTEND = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -23,37 +26,65 @@ async def api_error(_: Request, e: ApiError):
     return JSONResponse({"detail": e.detail}, status_code=e.status)
 
 
+def _has_auth_schema() -> bool:
+    with closing(sqlite3.connect(db.db_path())) as c:
+        return any(r[1] == "email" for r in c.execute("PRAGMA table_info(users)"))
+
+
 @app.on_event("startup")
 def startup() -> None:
-    if not os.path.exists(db.db_path()):
+    # A database created before login existed has no email/password columns: rebuild the (demo) data once.
+    if not os.path.exists(db.db_path()) or not _has_auth_schema():
         seed.seed()
 
 
-def current_user(x_user_id: int = Header(...)) -> int:
-    if not db.one("SELECT 1 x FROM users WHERE id=?", (x_user_id,)):
-        raise ApiError(401, "Unknown user")
-    return x_user_id
+def current_user(authorization: str | None = Header(None), x_user_id: int | None = Header(None)) -> int:
+    return auth.authenticate(authorization, x_user_id)
 
 
 UID = Depends(current_user)
+
+
+# ---------------------------------------------------------------- authentication
+
+@app.get("/api/auth/config")
+def auth_config():
+    return {"demo": auth.demo_auth(), "cities": db.CITIES, "demo_password": seed.DEMO_PASSWORD if auth.demo_auth() else None}
+
+
+@app.post("/api/auth/register")
+def auth_register(body: dict = Body(...)):
+    return auth.register(body)
+
+
+@app.post("/api/auth/login")
+def auth_login(body: dict = Body(...)):
+    return auth.login(body)
+
+
+@app.post("/api/auth/logout")
+def auth_logout(authorization: str | None = Header(None), uid: int = UID):
+    return auth.logout(authorization)
 
 
 # ---------------------------------------------------------------- session / reference data
 
 @app.post("/api/reset")
 def reset():
+    if not auth.demo_auth():
+        raise ApiError(403, "Reset is only available in demo mode (VC_DEMO_AUTH=1)")
     seed.seed()
     return {"ok": True}
 
 
 @app.get("/api/users")
-def users():
+def users(uid: int = UID):
     return db.rows("SELECT id, name, shop, role, city, category, rating_avg, rating_count, kyc_verified FROM users ORDER BY role DESC, id")
 
 
 @app.get("/api/me")
 def me(uid: int = UID):
-    u = db.one("SELECT id, name, shop, role, city, category, phone, kyc_verified, rating_avg, rating_count FROM users WHERE id=?", (uid,))
+    u = db.one("SELECT id, name, shop, role, city, category, phone, email, email_verified, kyc_verified, rating_avg, rating_count FROM users WHERE id=?", (uid,))
     u["groups"] = [{"id": g["id"], "name": g["name"]} for g in groups.my_groups(uid)] if u["role"] == "merchant" else []
     u["invites"] = groups.my_invites(uid) if u["role"] == "merchant" else []
     u["unread"] = merchant.notifications(uid, 1)["unread"]
@@ -393,6 +424,11 @@ def update_inventory(body: dict = Body(...), uid: int = UID):
 @app.get("/")
 def index():
     return FileResponse(FRONTEND / "index.html")
+
+
+@app.get("/login")
+def login_page():
+    return FileResponse(FRONTEND / "login.html")
 
 
 if FRONTEND.exists():

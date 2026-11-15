@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in - Paytm for Business - VyaparConnect AI</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%2300296b%27/%3E%3Ctext x=%2716%27 y=%2722%27 font-size=%2716%27 font-family=%27Arial%27 font-weight=%27700%27 fill=%27%2300b9f5%27 text-anchor=%27middle%27%3EVC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .authwrap{max-width:440px;margin:40px auto;padding:0 16px}
+  .authwrap .brand{justify-content:center;margin-bottom:18px}
+  .authwrap [hidden]{display:none!important}
+  .authwrap .seg{display:flex;gap:6px;margin:0 0 14px;padding:0;border:0}
+  .seg button{flex:1}
+  .authwrap form{display:flex;flex-direction:column;gap:12px}
+  .authwrap input,.authwrap select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:10px;font:inherit}
+  .authwrap .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .authwrap .msg{min-height:20px;max-width:none;padding:0}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<main id="main" class="authwrap">
+  <div class="brand" aria-label="Paytm for Business"><span class="logo"><b>pay</b><i>tm</i></span><span class="for">for Business</span></div>
+  <div class="card">
+    <h2 id="title">Sign in</h2>
+    <p class="muted sm" id="sub">For merchants and wholesalers.</p>
+
+    <div class="seg" id="seg" role="tablist">
+      <button type="button" class="btn sec" id="tabLogin" role="tab" aria-selected="true">Sign in</button>
+      <button type="button" class="btn ghost" id="tabReg" role="tab" aria-selected="false">Create account</button>
+    </div>
+
+    <form id="fLogin" novalidate>
+      <div class="field"><label for="lEmail">Email</label><input id="lEmail" name="email" type="email" autocomplete="username" required></div>
+      <div class="field"><label for="lPw">Password</label><input id="lPw" name="password" type="password" autocomplete="current-password" required></div>
+      <button class="btn cyan" type="submit">Sign in</button>
+    </form>
+
+    <form id="fReg" novalidate hidden>
+      <div class="field"><label for="rRole">I am a</label>
+        <select id="rRole" name="role"><option value="merchant">Merchant (shop owner)</option><option value="wholesaler">Wholesaler (supplier)</option></select></div>
+      <div class="two">
+        <div class="field"><label for="rName">Your name</label><input id="rName" name="name" autocomplete="name" required minlength="2" maxlength="60"></div>
+        <div class="field"><label for="rShop">Shop / business name</label><input id="rShop" name="shop" autocomplete="organization" required minlength="2" maxlength="80"></div>
+      </div>
+      <div class="two">
+        <div class="field"><label for="rCity">City</label><select id="rCity" name="city" required></select></div>
+        <div class="field"><label for="rCat">Category</label>
+          <select id="rCat" name="category"><option value="grocery">Grocery</option><option value="fmcg">FMCG</option><option value="both">Both</option></select></div>
+      </div>
+      <div class="field"><label for="rPhone">Mobile (optional, 10 digits)</label><input id="rPhone" name="phone" inputmode="numeric" maxlength="10" autocomplete="tel-national"></div>
+      <div class="field"><label for="rEmail">Email</label><input id="rEmail" name="email" type="email" autocomplete="email" required></div>
+      <div class="field"><label for="rPw">Password (min 8 characters)</label><input id="rPw" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></div>
+      <button class="btn cyan" type="submit">Create account</button>
+    </form>
+
+    <p class="msg sm" id="msg" role="alert" aria-live="assertive"></p>
+    <div id="demo" class="sm muted" hidden></div>
+  </div>
+</main>
+<script src="/static/login.js"></script>
+</body>
+</html>

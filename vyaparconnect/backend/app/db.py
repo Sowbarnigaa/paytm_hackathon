@@ -88,7 +88,12 @@ CREATE TABLE users(
   city TEXT NOT NULL, category TEXT NOT NULL,                -- grocery | fmcg | both
   phone TEXT, kyc_verified INTEGER NOT NULL DEFAULT 1,
   credit_score INTEGER NOT NULL DEFAULT 650, on_time_rate REAL NOT NULL DEFAULT 0.9,
-  rating_avg REAL NOT NULL DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0   -- 1..5 review scale
+  rating_avg REAL NOT NULL DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0,  -- 1..5 review scale
+  email TEXT UNIQUE, password_hash TEXT, email_verified INTEGER NOT NULL DEFAULT 0   -- login (see auth.py)
+);
+CREATE TABLE sessions(                                        -- bearer sessions; only the SHA-256 of the token is stored
+  token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL, expires_at TEXT NOT NULL
 );
 CREATE TABLE products(
   name TEXT PRIMARY KEY, unit TEXT NOT NULL, base_price REAL NOT NULL, category TEXT NOT NULL, typical_qty REAL NOT NULL

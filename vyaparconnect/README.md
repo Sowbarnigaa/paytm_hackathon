@@ -24,6 +24,22 @@ Open **`http://localhost:8000`** in your browser.
 - The database (`vyapar.db`) is automatically initialized and seeded with 34 realistic users (merchants & wholesalers across Erode, Coimbatore, Chennai, Salem), 12 catalog products, 5 buying groups, and 90 days of daily POS history.
 - **Reset demo state anytime**: Click the **Reset** button in the top bar (or `POST /api/reset`).
 - **100% Offline Runnable**: Zero external cloud LLM dependencies, zero API keys required, deterministic and instant.
+## Sign-in (merchants and wholesalers)
+
+Open `http://localhost:8000` and you are sent to `/login`:
+
+- **Create account**: pick *Merchant* or *Wholesaler*, enter email + password (min 8 chars). You are signed in immediately (no email verification - this is a demo).
+- **Sign in**: email + password. Sessions are bearer tokens valid for 7 days; **Sign out** revokes the token.
+
+Passwords are hashed with scrypt, tokens are stored only as hashes, and 5 failed logins lock an email for 5 minutes.
+
+| Env var | Purpose |
+|---|---|
+| `VC_DEMO_AUTH=1` | Demo only: re-enables the old `X-User-Id` role switcher and `POST /api/reset`; the login page shows demo credentials |
+
+Seeded demo accounts use `<firstname>@example.com` with password `Demo@1234` (e.g. `ravi@example.com` merchant, `murugan@example.com` wholesaler). An existing `vyapar.db` from before login was added is re-seeded automatically on startup. In the demo script below, "switch to X" means sign out and sign in as that user (or run with `VC_DEMO_AUTH=1` to use the dropdown).
+
+
 
 ---
 
@@ -71,7 +87,7 @@ Switch demo personas using the user dropdown at the top right of the navigation 
 cd vyaparconnect/backend
 PYTHONPATH=. .venv/bin/pytest tests/test_api.py -v
 ```
-*Result: 46 passed in ~5s with 100% assertion coverage across all modules.*
+*Result: 68 passed (46 API tests in `test_api.py`, 22 sign-in tests in `test_auth.py`).*
 
 ### 2. End-to-End Headless Chrome UI Automation (10 Demo Steps)
 ```bash
