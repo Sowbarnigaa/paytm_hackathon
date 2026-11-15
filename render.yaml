@@ -1,0 +1,19 @@
+# Render Blueprint: one web service serves the FastAPI API and the static frontend.
+# Demo only: SQLite lives on the instance disk and is re-seeded on every start/restart.
+services:
+  - type: web
+    name: vyaparconnect-ai
+    runtime: python
+    plan: free
+    rootDir: vyaparconnect/backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /login
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.13
+      - key: VC_DB
+        value: /tmp/vyapar.db
+      # Set to "1" to show demo credentials on the login page (also enables the X-User-Id switcher and /api/reset).
+      - key: VC_DEMO_AUTH
+        value: "0"
