@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 os.environ["VC_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
 os.environ["VC_DEMO_AUTH"] = "1"          # this suite drives the API with the X-User-Id role switcher; see test_auth.py for real login
+os.environ["VC_SARVAM"] = "0"             # never call the real Sarvam API from tests
 
 from app import ai, db, seed  # noqa: E402
 from app.main import app  # noqa: E402
@@ -118,6 +119,28 @@ def test_parser_detects_language_and_budget():
     assert ai.parse_request("50 kg rice")["language"]["code"] == "en"
     p = ai.parse_request("50 किलो चावल, बजट 6000 रुपये")
     assert p["budget"] == 6000 and p["unrecognised"] == []
+
+def test_sarvam_reply_is_validated_and_rules_remain_the_fallback(monkeypatch):
+    reply = {"items": [{"product": "rice", "qty": 2, "unit": "quintal"}, {"product": "Sunflower Oil", "qty": 10, "unit": "litre"},
+                       {"product": "Gold", "qty": 5, "unit": "kg"}, {"product": "Sugar", "qty": "lots", "unit": "kg"}],
+             "budget": 30000, "language": "hi"}
+    monkeypatch.setattr(ai.sarvam, "extract_order", lambda text, products: reply)
+    p = ai.parse_request("mujhe 2 quintal chawal aur 10 litre tel chahiye")
+    assert p["engine"] == "sarvam-105b-conversations" and p["budget"] == 30000 and p["language"]["code"] == "hi"
+    got = {l["product"]: (l["qty"], l["assumed_qty"]) for l in p["lines"]}
+    assert got["Rice"] == (200, False) and got["Sunflower Oil"] == (10, False) and got["Sugar"][1] is True   # "lots" -> default qty, flagged
+    assert "Gold" not in got and p["unrecognised"] == ["Gold"]                                             # unknown products never reach the DB
+    monkeypatch.setattr(ai.sarvam, "extract_order", lambda text, products: None)                           # Sarvam down -> rule parser
+    q = ai.parse_request("50 kg rice")
+    assert q["engine"] == "rule-based" and q["lines"][0]["qty"] == 50
+
+
+def test_voice_endpoints_fail_cleanly_without_sarvam(c):
+    assert c.post("/api/ai/transcribe", json={"audio": "AAAA", "format": "webm"}, headers=H(RAVI)).status_code == 503
+    assert c.post("/api/ai/speak", json={"text": "hello", "lang": "en"}, headers=H(RAVI)).status_code == 503
+    assert c.post("/api/ai/speak", json={"text": " "}, headers=H(RAVI)).status_code == 400
+
+
 
 
 def test_procure_works_in_tamil_and_lists_multiple_products(c):

@@ -1,7 +1,8 @@
-"""Rule-based / statistical AI for VyaparConnect. Deterministic - NO LLM, no external model calls.
+"""AI for VyaparConnect: Sarvam AI for language understanding, deterministic maths for everything that moves money.
 
-1. Procurement agent  - multilingual rule-based parser (English, Tamil, Hindi; native script + romanised) -> inventory
-                        database lookup -> weighted supplier ranking (price, rating, ETA) with user-selectable sorting.
+1. Procurement agent  - Sarvam-105B reads the request (any Indian language, typed or spoken) -> validated against the products
+                        table; if Sarvam is off/unreachable the multilingual rule-based parser (English, Tamil, Hindi) takes over
+                        -> inventory database lookup -> weighted supplier ranking (price, rating, ETA) with user-selectable sorting.
 2. Demand forecast    - exponential smoothing (alpha 0.3) on daily usage x day-of-week index x festival multiplier.
 3. Smart negotiator   - Faratin-style time-dependent concession between a buyer agent and a seller agent whose
                         reservation price is the wholesaler's PRIVATE floor price, shaped by live stock and order size.
@@ -12,7 +13,7 @@ import re
 import unicodedata
 from datetime import date, timedelta
 
-from . import db, market, orders
+from . import db, market, orders, sarvam
 from .db import ApiError
 
 
@@ -231,9 +232,58 @@ def _convert(qty: float, unit, prod_unit: str) -> tuple[float, str | None]:
 
 
 def parse_request(text: str) -> dict:
+    """Sarvam-105B first; the deterministic rule-based parser is the fallback. Result carries `engine` so the UI can say which."""
     raw = (text or "").strip()
     if not raw:
         raise ApiError(400, "Tell me what you need, e.g. '50 kg rice and 20 L oil, budget 6000' (Tamil/Hindi also works)")
+    return _parse_sarvam(raw) or {**_parse_rules(raw), "engine": "rule-based"}
+
+
+def _parse_sarvam(raw: str) -> dict | None:
+    products = {p["name"].lower(): p for p in db.rows("SELECT name, unit, typical_qty FROM products")}
+    data = sarvam.extract_order(raw, list(products.values()))
+    if not data:
+        return None
+    lines: dict[str, dict] = {}
+    unknown: list[str] = []
+    for it in data["items"]:
+        if not isinstance(it, dict):
+            continue
+        meta = products.get(re.sub(r"\s*\(.*?\)\s*$", "", str(it.get("product", ""))).strip().lower())   # tolerate "Rice (kg)"
+        if not meta:
+            if it.get("product"):
+                unknown.append(str(it["product"])[:60])
+            continue
+        qty, note, assumed = meta["typical_qty"], None, True
+        q = it.get("qty")
+        if isinstance(q, (int, float)) and not isinstance(q, bool) and 0 < q < 1e7:
+            unit = _lookup(UNITS, _n(str(it.get("unit") or "").strip().lower())) or None
+            qty, note = _convert(float(q), unit, meta["unit"])
+            assumed = False
+        cur = lines.get(meta["name"])
+        if cur:
+            cur["qty"] = round(cur["qty"] + qty, 3)
+            cur["assumed_qty"] = cur["assumed_qty"] and assumed
+        else:
+            lines[meta["name"]] = {"product": meta["name"], "qty": round(qty, 3), "unit": meta["unit"], "assumed_qty": assumed,
+                                   "heard": str(it.get("product")), "note": note}
+    if not lines:
+        return None
+    b = data.get("budget")
+    budget = float(b) if isinstance(b, (int, float)) and not isinstance(b, bool) and 0 < b < 1e9 else None
+    code = data.get("language") if data.get("language") in LANG_NAME else detect_language(raw)["code"]
+    script = detect_language(raw)["script"]
+    lang = {"code": code, "name": LANG_NAME[code] + (" (romanised)" if code != "en" and script == "Latin" else ""), "script": script,
+            "method": "Sarvam-105B"}
+    ls = list(lines.values())
+    english = ", ".join(f"{l['qty']:g} {l['unit']} {l['product']}" for l in ls)
+    if budget:
+        english += f" (budget Rs {budget:,.0f})"
+    return {"lines": ls, "budget": budget, "unrecognised": unknown, "language": lang, "english": english,
+            "single_product": len(ls) == 1, "engine": "sarvam-105b-conversations"}
+
+
+def _parse_rules(raw: str) -> dict:
     lang = detect_language(raw)
     budget, rest = _extract_budget(_normalise(raw))
     lines: dict[str, dict] = {}
@@ -410,7 +460,8 @@ def procurement(uid: int, text: str, sort: str = "best") -> dict:
             "group_pools": pools, "live_sales": sales,
             "understood": (f"Understood ({lang['name']}): {parsed['english']}" if lang["code"] != "en" else f"Understood: {parsed['english']}"),
             "summary": f"Compared {len(ranked)} supplier(s) from the live inventory database, ranked by '{sort}'. Top: {top[0]['wholesaler']['shop']} at Rs {top[0]['total']:,.0f} for the goods.",
-            "method": "Rule-based parser + weighted scoring (50% price, 30% rating, 20% arrival time). No LLM."}
+            "method": ("Sarvam-105B understands the request; " if parsed["engine"] != "rule-based" else "Rule-based parser reads the request; ")
+                      + "suppliers are ranked by deterministic scoring (50% price, 30% rating, 20% arrival time) on live inventory."}
 
 
 # ================================================================== 2. demand forecast

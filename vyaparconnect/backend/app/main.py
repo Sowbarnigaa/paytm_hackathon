@@ -13,7 +13,7 @@ from fastapi import Body, Depends, FastAPI, Header, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import ai, auth, credit, db, groups, market, merchant, orders, payments, seed
+from . import ai, auth, credit, db, groups, market, merchant, orders, payments, sarvam, seed
 from .db import ApiError
 
 FRONTEND = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -282,6 +282,29 @@ def procure(body: dict = Body(...), uid: int = UID):
 @app.post("/api/ai/parse")
 def parse(body: dict = Body(...), uid: int = UID):
     return ai.parse_request(body.get("text", ""))
+
+
+@app.post("/api/ai/transcribe")
+def transcribe(body: dict = Body(...), uid: int = UID):
+    """Voice -> text with Sarvam Saaras (language auto-detected). Body: {audio: base64, format: webm|ogg|mp4|wav|mp3}."""
+    audio = sarvam.b64decode(str(body.get("audio", "")))
+    res = sarvam.transcribe(audio, str(body.get("format", "webm"))) if audio else None
+    if not res:
+        raise ApiError(503, "Couldn't transcribe that. Try again, or type your request.")
+    return res
+
+
+@app.post("/api/ai/speak")
+def speak(body: dict = Body(...), uid: int = UID):
+    """Read text aloud with Sarvam Bulbul. For Tamil/Hindi the English text is first translated with Sarvam-Translate."""
+    text, lang = str(body.get("text", "")).strip(), str(body.get("lang", "en"))
+    if not text:
+        raise ApiError(400, "Nothing to read out")
+    spoken = sarvam.translate(text, lang) or text
+    audio = sarvam.speak(spoken, lang if spoken != text else "en")
+    if not audio:
+        raise ApiError(503, "Voice playback is unavailable right now.")
+    return {"audio": audio, "format": "mp3", "text": spoken}
 
 
 @app.get("/api/ai/forecast")

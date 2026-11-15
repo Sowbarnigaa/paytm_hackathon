@@ -2,23 +2,47 @@
 "use strict";
 
 // ------------------------------------------------------------------ AUCTIONS & DEMANDS (REVERSE AUCTIONS)
-function demandRowHtml(removable) {
+// Voice dictation button (Sarvam Saaras records on the server side; falls back to the browser recogniser). `target` = textarea id.
+function micHtml(target) {
+  return html`
+    <div class="composer-bar">
+      <div class="rec-idle sm muted">Speak in any language - Sarvam Saaras detects it</div>
+      <div class="rec-live" aria-live="polite">
+        <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="rec-label sm">Listening…</span>
+      </div>
+      <div class="composer-actions">
+        <button type="button" class="mic mic-idle rec-idle" data-a="speechToText" data-t="${target}" aria-label="Dictate with voice" title="Dictate">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8.5 21h7"/></svg>
+        </button>
+        <button type="button" class="mic mic-cancel rec-live" data-a="micCancel" aria-label="Cancel dictation" title="Cancel">
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+        <button type="button" class="mic mic-done rec-live" data-a="micDone" aria-label="Use dictated text" title="Done">
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function demandRowHtml(removable, pre = {}) {
   const products = (S.products && S.products.length) ? S.products : [{ name: "Rice", unit: "kg" }, { name: "Sugar", unit: "kg" }];
   return html`
     <div class="dem-row row mt" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
       <div class="field">
         <label>Product</label>
         <select name="product" required>
-          ${products.map(p => html`<option value="${p.name}">${p.name}${p.unit ? ` (${p.unit})` : ""}</option>`)}
+          ${products.map(p => html`<option value="${p.name}" ${p.name === pre.product ? "selected" : ""}>${p.name}${p.unit ? ` (${p.unit})` : ""}</option>`)}
         </select>
       </div>
       <div class="field">
         <label>Quantity</label>
-        <input name="qty" type="number" min="1" step="any" value="100" required>
+        <input name="qty" type="number" min="1" step="any" value="${pre.qty || 100}" required>
       </div>
       <div class="field">
         <label>Target Budget (₹ optional)</label>
-        <input name="budget" type="number" min="0" placeholder="e.g. 4500">
+        <input name="budget" type="number" min="0" placeholder="e.g. 4500" value="${pre.budget || ""}">
       </div>
       ${removable ? html`<button type="button" class="btn bad sm" data-a="removeDemandRow">Remove</button>` : ""}
     </div>
@@ -45,6 +69,12 @@ async function vAuctions() {
     ${isMerchantUser ? html`
       <div class="card hl mb">
         <h3>Post a Demand / Reverse Auction</h3>
+        <div class="sm muted mt">Describe what you need in your own words (typed or spoken, English / Hindi / Tamil) - Sarvam AI fills in the form below for you to check.</div>
+        <div class="composer mt" id="dcomposer" style="max-width:640px">
+          <textarea id="dtext" rows="2" placeholder="e.g. 2 quintal chawal aur 10 litre tel, budget 30000"></textarea>
+          ${micHtml("dtext")}
+        </div>
+        <div class="row mt"><button type="button" class="btn ai sm" data-a="aiDemandFill">✨ Fill the form with AI</button></div>
         <form data-f="auction" class="mt">
           <div id="demRows">${demandRowHtml(false)}</div>
           <div class="row mt">
@@ -232,7 +262,7 @@ async function vAI() {
   return html`${head}${await aiForecast()}`;
 }
 
-const SpeechRec = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+const CanRecord = typeof window !== "undefined" && !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 
 function aiProc() {
   const r = S.proc;
@@ -240,33 +270,10 @@ function aiProc() {
   return html`
     <div class="card hl mb">
       <form data-f="procure">
-        <label for="ptext"><b>Tell the agent what you need</b> (Supports English, Tamil & Hindi terms: e.g. <i>50 kg arisi, 20 L oil, 2 quintal chawal, budget 6000</i>)</label>
+        <label for="ptext"><b>Tell the agent what you need</b> (type or speak in English, Hindi, Tamil or a mix: e.g. <i>50 kg arisi, 20 L oil, 2 quintal chawal, budget 6000</i>)</label>
         <div class="composer mt" id="composer">
           <textarea id="ptext" name="text" required rows="3" placeholder="e.g. 50 kg rice, 20 L oil, budget 6000">${S.procText || "50 kg rice, 20 L oil, budget 6000"}</textarea>
-          ${SpeechRec ? html`
-            <div class="composer-bar">
-              <div class="rec-idle">
-                <select id="voiceLang" class="lang" aria-label="Voice language" title="Voice language">
-                  ${[["en-IN", "English"], ["ta-IN", "தமிழ்"], ["hi-IN", "हिन्दी"]].map(([v, l]) => html`<option value="${v}" ${(S.voiceLang || "en-IN") === v ? "selected" : ""}>${l}</option>`)}
-                </select>
-              </div>
-              <div class="rec-live" aria-live="polite">
-                <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
-                <span class="rec-label sm">Listening…</span>
-              </div>
-              <div class="composer-actions">
-                <button type="button" class="mic mic-idle rec-idle" id="micBtn" data-a="speechToText" aria-label="Dictate with voice" title="Dictate">
-                  <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8.5 21h7"/></svg>
-                </button>
-                <button type="button" class="mic mic-cancel rec-live" data-a="micCancel" aria-label="Cancel dictation" title="Cancel">
-                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-                </button>
-                <button type="button" class="mic mic-done rec-live" data-a="micDone" aria-label="Use dictated text" title="Done">
-                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
-                </button>
-              </div>
-            </div>
-          ` : ""}
+          ${micHtml("ptext")}
         </div>
         <div class="row spread mt">
           <div class="field">
@@ -286,7 +293,9 @@ function aiProc() {
     ${r ? html`
       <div class="card mb">
         <h3>🤖 Top pick: ${r.suppliers && r.suppliers.length > 0 ? r.suppliers[0].wholesaler.shop : "Found"} - ${r.suppliers && r.suppliers.length > 0 ? inr(r.suppliers[0].total) : ""}</h3>
-        <p class="sm">${r.understood || r.summary}</p>
+        <p class="sm">${r.understood || r.summary}
+          <span class="badge ai" title="${r.method}">${r.parsed && r.parsed.engine !== "rule-based" ? "Sarvam-105B" : "Rule-based"}</span>
+          <button type="button" class="btn sec sm" data-a="speakResult" aria-label="Read the result aloud">🔊 Read aloud</button></p>
         ${r.budget_note ? html`<div class="sm ok mt"><b>Budget analysis:</b> ${r.budget_note}</div>` : ""}
 
         ${r.group_pools && r.group_pools.length > 0 ? html`

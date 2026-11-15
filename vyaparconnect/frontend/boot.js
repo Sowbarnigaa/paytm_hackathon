@@ -261,52 +261,93 @@ document.addEventListener("click", async e => {
   }
 
   if (a === "speechToText") {
-    // ChatGPT-style dictation: words stream into the text box live; ✕ discards them, ✓ keeps them.
-    if (!SpeechRec || S.rec) return;
-    const txt = $("#ptext"), box = $("#composer");
+    // Record the mic in the browser, send it to Sarvam Saaras (language auto-detected) and drop the transcript into the text box.
+    if (S.rec) return;
+    if (!CanRecord) { toast("Voice input isn't supported in this browser", true); return; }
+    const txt = $("#" + btn.dataset.t);
+    const box = txt && txt.closest(".composer");
     if (!txt || !box) return;
-    const sel = $("#voiceLang");
-    const lang = (sel && sel.value) || S.voiceLang || "en-IN";
-    S.voiceLang = lang;
-    const base = txt.value.trim();
-    const join = spoken => (base ? base + " " : "") + spoken;
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { toast("Microphone permission denied", true); return; }
+    const mime = ["audio/webm", "audio/mp4", "audio/ogg"].find(m => MediaRecorder.isTypeSupported(m)) || "";
+    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    const chunks = [];
     let cancelled = false;
-    const rec = new SpeechRec();
-    rec.lang = lang;          // the recogniser transcribes one language per session, so the user picks it
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.maxAlternatives = 1;
-    rec.onresult = e => {
-      let spoken = "";
-      for (let i = 0; i < e.results.length; i++) spoken += e.results[i][0].transcript;
-      txt.value = join(spoken.trim());
-      txt.scrollTop = txt.scrollHeight;
-    };
-    rec.onerror = ev => {
-      if (ev && ev.error === "no-speech") return;
-      if (ev && ev.error === "aborted") return;
-      toast(ev && (ev.error === "not-allowed" || ev.error === "service-not-allowed") ? "Microphone permission denied" : "Speech recognition error", true);
-    };
-    rec.onend = () => {
+    rec.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+    rec.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
       S.rec = null;
-      const t = $("#ptext"), b = $("#composer");
-      if (t) { if (cancelled) t.value = base; S.procText = t.value; t.focus(); }
-      if (b) b.classList.remove("recording");
+      box.classList.remove("recording");
+      if (cancelled || !chunks.length) return;
+      const type = rec.mimeType || mime || "audio/webm";
+      const format = (type.split(";")[0].split("/")[1] || "webm").replace("x-", "");
+      txt.disabled = true;
+      toast("Transcribing with Sarvam Saaras…");
+      try {
+        const dataUrl = await new Promise((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result);
+          fr.onerror = rej;
+          fr.readAsDataURL(new Blob(chunks, { type }));
+        });
+        const r = await api("/ai/transcribe", "POST", { audio: String(dataUrl).split(",")[1], format });
+        txt.value = (txt.value.trim() ? txt.value.trim() + " " : "") + r.text;
+        if (txt.id === "ptext") S.procText = txt.value;
+        toast("Heard: " + r.text);
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        txt.disabled = false;
+        txt.focus();
+      }
     };
     S.rec = rec;
-    S.recCancel = () => { cancelled = true; rec.abort(); };
+    S.recCancel = () => { cancelled = true; rec.stop(); };
     box.classList.add("recording");
-    try { rec.start(); } catch { S.rec = null; box.classList.remove("recording"); }
+    rec.start();
     return;
   }
 
   if (a === "micDone") {
-    if (S.rec) S.rec.stop();
+    if (S.rec && S.rec.state === "recording") S.rec.stop();
     return;
   }
 
   if (a === "micCancel") {
     if (S.rec && S.recCancel) S.recCancel();
+    return;
+  }
+
+  if (a === "aiDemandFill") {
+    const txt = $("#dtext");
+    if (!txt || !txt.value.trim()) { toast("Type or speak what you need first", true); return; }
+    await act(async () => {
+      const r = await api("/ai/parse", "POST", { text: txt.value });
+      if (!r.lines.length) { toast("I couldn't find any product in that. Try e.g. '50 kg rice, 20 L oil'", true); return; }
+      const rows = $("#demRows");
+      rows.innerHTML = r.lines.map((l, i) => demandRowHtml(i > 0, { product: l.product, qty: l.qty, budget: r.lines.length === 1 && r.budget ? r.budget : "" }).s).join("");
+      toast(`Filled ${r.lines.length} product(s) with ${r.engine === "rule-based" ? "the rule-based parser" : "Sarvam-105B"} - check and post` +
+        (r.budget && r.lines.length > 1 ? `. Budget Rs ${r.budget} was for the whole list - set it per product if needed.` : "."));
+    });
+    return;
+  }
+
+  if (a === "speakResult") {
+    const r = S.proc;
+    if (!r || S.speaking) return;
+    const top = r.suppliers && r.suppliers[0];
+    const text = `${r.understood}. Best supplier is ${top.wholesaler.shop}, ${top.eta_days} day delivery, total ${Math.round(top.total)} rupees.`;
+    S.speaking = true;
+    await act(async () => {
+      try {
+        const lang = r.parsed.language.code;
+        const v = await api("/ai/speak", "POST", { text, lang });
+        const audio = new Audio("data:audio/mpeg;base64," + v.audio);
+        audio.onended = () => { S.speaking = false; };
+        await audio.play();
+      } catch (e) { S.speaking = false; throw e; }
+    });
+    S.speaking = false;
     return;
   }
 
@@ -1405,7 +1446,6 @@ document.addEventListener("change", async e => {
 });
 
 document.addEventListener("change", e => {
-  if (e.target && e.target.id === "voiceLang") S.voiceLang = e.target.value;
 });
 
 // Helper for live filtering popup merchant directory

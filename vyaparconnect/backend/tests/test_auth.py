@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("VC_DB", os.path.join(tempfile.mkdtemp(), "auth.db"))
+os.environ["VC_SARVAM"] = "0"             # never call the real Sarvam API from tests
 
 from app import auth, db, seed  # noqa: E402
 from app.main import app  # noqa: E402
