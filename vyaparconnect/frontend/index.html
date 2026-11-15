@@ -3,22 +3,38 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Paytm VyaparConnect AI</title>
+<title>Paytm for Business - VyaparConnect AI</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<a class="skip" href="#app">Skip to content</a>
 <header class="top">
-  <div class="brand"><span class="logo">paytm</span><b>VyaparConnect AI</b></div>
+  <button class="burger" data-a="toggleNav" aria-label="Open menu" aria-controls="nav">&#9776;</button>
+  <div class="brand" aria-label="Paytm for Business"><span class="logo"><b>pay</b><i>tm</i></span><span class="for">for Business</span></div>
+  <h1 class="ttl" id="pageTitle">Home</h1>
+  <form class="gsearch" data-f="topSearch" role="search">
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <input name="q" placeholder="Search groups, merchants, products" aria-label="Search groups, merchants and products" autocomplete="off">
+  </form>
   <div class="who">
+    <button class="bell" data-a="gotoNotifs" aria-label="Notifications">
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v4l-2 3h16l-2-3V9a6 6 0 0 0-6-6zm-2 15a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      <span id="bellN" class="dotn" hidden>0</span>
+    </button>
     <label for="userSel" class="sr">Demo user</label>
     <select id="userSel" aria-label="Switch demo user"></select>
-    <button class="btn ghost sm" data-a="reset" title="Reset demo data">Reset demo</button>
+    <button class="btn ghost sm" data-a="reset" title="Reset demo data">Reset</button>
   </div>
 </header>
-<nav id="tabs" class="tabs" aria-label="Main"></nav>
-<main id="app" aria-live="polite"><p class="muted pad">Loading…</p></main>
+<div class="shell">
+  <nav id="nav" class="nav" aria-label="Main"></nav>
+  <main id="app" aria-live="polite"><p class="muted pad">Loading…</p></main>
+</div>
 <div id="modal" class="modal-bg" hidden></div>
 <div id="toast" class="toast" role="status" hidden></div>
-<script src="/static/app.js"></script>
+<script src="/static/core.js"></script>
+<script src="/static/views_a.js"></script>
+<script src="/static/views_b.js"></script>
+<script src="/static/boot.js"></script>
 </body>
 </html>
