@@ -161,7 +161,7 @@ CREATE TABLE installments(
 );
 CREATE TABLE payment_intents(                                 -- simulated Paytm Payment Gateway transactions
   txn_id TEXT PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id), user_id INTEGER NOT NULL,
-  amount REAL NOT NULL, kind TEXT NOT NULL, parts INTEGER, installment_no INTEGER,
+  amount REAL NOT NULL, kind TEXT NOT NULL, parts INTEGER, installment_no INTEGER, autopay INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'pending', method TEXT, created_at TEXT NOT NULL
 );
 CREATE TABLE payments(
