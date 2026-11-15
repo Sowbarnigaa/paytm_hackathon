@@ -102,10 +102,11 @@ function dealCard(d, g = {}) {
 async function vHome() {
   if (!isMerchant()) return vWholesalerHome();
   const me = S.me;
-  const [fc, recsData, posHome] = await Promise.all([
+  const [fc, recsData, posHome, stockList] = await Promise.all([
     api("/ai/forecast"),
     api("/groups/recommendations"),
-    api("/home")
+    api("/home"),
+    api("/stock")
   ]);
 
   const recs = recsData.groups || [];
@@ -182,6 +183,40 @@ async function vHome() {
           `)}
         </div>
       ` : html`<p class="muted">All tracked inventory looks healthy.</p>`}
+    </div>
+
+    <div class="card mb">
+      <div class="spread">
+        <div>
+          <h3>📦 Store Shelf Inventory & Usage</h3>
+          <div class="sm muted">Track in-store goods, log customer sales, and feed predictive AI demand replenishment.</div>
+        </div>
+        <button class="btn cyan sm" data-a="openSetStockModal">+ Track New Product</button>
+      </div>
+      ${(stockList || []).length === 0 ? html`
+        <p class="muted mt">No shelf inventory tracked yet. Click '+ Track New Product' above to start tracking shelf stock.</p>
+      ` : html`
+        <table class="mt">
+          <thead>
+            <tr><th>Product</th><th>Shelf Stock</th><th>Unit</th><th>Last Usage Logged</th><th>Quick Actions</th></tr>
+          </thead>
+          <tbody>
+            ${(stockList || []).map(it => html`
+              <tr>
+                <td><b>${it.product}</b></td>
+                <td><span class="badge ${it.stock <= 15 ? "warn" : "ok"}"><b>${num(it.stock)}</b></span></td>
+                <td>${it.unit}</td>
+                <td class="muted">${it.last_usage || "Today"}</td>
+                <td class="row">
+                  <button class="btn sec sm" data-a="openLogUsageModal" data-p="${it.product}" data-u="${it.unit}">Log Sale (Usage)</button>
+                  <button class="btn sec sm" data-a="openSetStockModal" data-p="${it.product}" data-s="${it.stock}">Update Stock</button>
+                  <button class="btn cyan sm" data-a="reorder" data-p="${it.product}" data-q="50" data-u="${it.unit}">Find Deal</button>
+                </td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      `}
     </div>
 
     ${suggested ? html`
@@ -302,43 +337,67 @@ async function vWholesalerHome() {
   `;
 }
 
-// ------------------------------------------------------------------ MERCHANTS DIRECTORY
-async function vMerchants() {
+// ------------------------------------------------------------------ NEARBY MERCHANTS MODAL HELPER
+function nearbyMerchantsModalContent(list, gid = null) {
   const me = S.me;
-  const list = await api("/merchants/nearby");
-
   return html`
     <div class="spread mb">
       <div>
-        <h2>Nearby Merchants Directory</h2>
-        <div class="sm muted">Discover and connect with local store owners in ${me.city} and neighboring hubs to form buying groups.</div>
+        <h3>🔍 Nearby Merchants Directory</h3>
+        <div class="sm muted">Connect and combine verified merchants in ${me ? me.city : ""} and neighboring hubs to form buying groups.</div>
       </div>
     </div>
 
-    <div class="grid g3">
-      ${list.map(m => html`
-        <div class="card">
-          <div class="spread">
-            <h3>${m.shop}</h3>
-            ${m.kyc_verified ? html`<span class="badge ok">KYC ✓</span>` : ""}
-          </div>
-          <div class="sm muted">${m.name} · ${m.city} · ${m.near_label || ""}</div>
-          <div class="mt">
-            <span class="badge">${m.category}</span>
-            <span class="badge">⭐ ${(m.rating_avg || 5).toFixed(1)} (${m.rating_count || 0})</span>
-          </div>
-          <div class="sm mt">
-            <b>Key items:</b> ${(m.items || []).join(", ") || "Groceries"}
-          </div>
-          ${m.shared_products && m.shared_products.length > 0 ? html`
-            <div class="sm ok mt">Shared with you: ${m.shared_products.join(", ")}</div>
-          ` : ""}
-          <div class="mt row">
-            <button class="btn sec sm" data-a="inviteModal" data-id="${m.id}" data-name="${m.shop}">Invite to Group</button>
-          </div>
-        </div>
-      `)}
+    <div class="info-banner mb">
+      <b>💡 How merchants data shared with you is found:</b>
+      VyaparConnect AI compares your store's regular inventory and POS purchase history against other verified stores in your area. When merchants purchase the same staple goods (e.g., Rice, Sugar, Oil), they are highlighted below as <b>Shared with you</b> so you can connect and pool wholesale orders to unlock lowest tier prices!
     </div>
+
+    <div class="field mb">
+      <label for="mSearchInput">Filter merchants by name, shop, city or product:</label>
+      <input id="mSearchInput" placeholder="Type to filter (e.g. Rice, Kumar, Erode)..." oninput="filterMerchantPopupList(this.value)">
+    </div>
+
+    <form data-f="combineMerchants" data-gid="${gid || ""}" class="form col">
+      <div class="spread sm">
+        <span><b>${list.length} nearby merchants found</b></span>
+        <button type="button" class="btn ghost sm" data-a="selectAllMerchants">Select All</button>
+      </div>
+
+      <div class="merchant-select-list" id="merchantPopupList">
+        ${list.map(m => html`
+          <label class="merchant-item" data-text="${(m.shop + ' ' + m.name + ' ' + m.city + ' ' + (m.shared_products || []).join(' ') + ' ' + (m.items || []).join(' ')).toLowerCase()}">
+            <input type="checkbox" name="merchant_ids" value="${m.id}" data-shop="${m.shop}">
+            <div class="grow">
+              <div class="spread">
+                <b>${m.shop}</b>
+                <span class="sm muted">${m.near_label || m.city} · ⭐ ${(m.rating_avg || 5).toFixed(1)}</span>
+              </div>
+              <div class="sm muted">${m.name} · ${m.city} · ${m.category} ${m.kyc_verified ? "· KYC ✓" : ""}</div>
+              ${m.shared_products && m.shared_products.length > 0 ? html`
+                <div class="mt">
+                  <span class="badge ok">Shared with you: ${m.shared_products.join(", ")}</span>
+                </div>
+              ` : html`
+                <div class="sm muted mt">Key items: ${(m.items || []).join(", ") || "Groceries"}</div>
+              `}
+            </div>
+            ${gid ? html`
+              <button type="button" class="btn cyan sm" data-a="inviteSingleMerchant" data-gid="${gid}" data-uid="${m.id}" data-name="${m.shop}">Invite</button>
+            ` : ""}
+          </label>
+        `)}
+      </div>
+
+      <div class="spread mt">
+        <button type="button" class="btn sec" data-a="closeModal">Cancel</button>
+        ${gid ? html`
+          <button type="submit" class="btn cyan">Invite Selected Merchants to Group</button>
+        ` : html`
+          <button type="submit" class="btn cyan">Form New Group with Selected Merchants</button>
+        `}
+      </div>
+    </form>
   `;
 }
 
@@ -473,6 +532,18 @@ function gFeed(d) {
   const isWholesale = isWholesaler();
 
   return html`
+    <div class="collective-box mb">
+      <div class="spread">
+        <div>
+          <h3 style="color:#065f46">🤖 AI Group Reverse Auction Assistant</h3>
+          <p class="sm" style="color:#047857;margin:2px 0 0">
+            Discussed a bulk item with group members? Once agreed, let VyaparConnect AI launch a collective reverse auction across participating group members to get competitive wholesaler bids in the Auctions marketplace!
+          </p>
+        </div>
+        <button class="btn ok sm" data-a="openCollectiveAuctionModal" data-gid="${d.id}">+ AI Post to Auctions</button>
+      </div>
+    </div>
+
     <div class="card mb">
       <form data-f="post" class="form col">
         <label for="postText">Share an update, stock alert or procurement tip with the group</label>
@@ -522,10 +593,13 @@ function gDeals(d) {
 
   return html`
     <div class="spread mb">
-      <h3>Active Group Pools</h3>
-      ${isWholesale ? html`
-        <button class="btn cyan" data-a="openNewDealModal" data-gid="${d.id}">+ Post pooled deal</button>
-      ` : ""}
+      <h3>Active Group Pools & Collective Auctions</h3>
+      <div class="row">
+        <button class="btn ok sm" data-a="openCollectiveAuctionModal" data-gid="${d.id}">+ AI Post Collective Auction</button>
+        ${isWholesale ? html`
+          <button class="btn cyan sm" data-a="openNewDealModal" data-gid="${d.id}">+ Post pooled deal</button>
+        ` : ""}
+      </div>
     </div>
 
     ${pools.length === 0 ? html`
@@ -568,14 +642,15 @@ function gMembers(d) {
       </table>
     </div>
 
-    ${isAdmin ? html`
-      <div class="card">
-        <h3>Invite Nearby Merchants</h3>
-        <div id="invbox" class="muted sm">
-          <button class="btn sec sm" data-a="loadInviteList" data-gid="${d.id}">Find merchants to invite</button>
+    <div class="card">
+      <div class="spread">
+        <div>
+          <h3>🤝 Expand Group Buying Power — Invite Nearby Merchants</h3>
+          <p class="sm muted">Discover and combine local merchants in ${d.city} buying similar products to pool larger bulk volumes and unlock maximum tier discounts.</p>
         </div>
+        <button class="btn cyan sm" data-a="openNearbyMerchantsModal" data-gid="${d.id}">🔍 Find & Combine Merchants</button>
       </div>
-    ` : ""}
+    </div>
   `;
 }
 

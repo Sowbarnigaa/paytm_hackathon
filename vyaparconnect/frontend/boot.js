@@ -519,6 +519,164 @@ document.addEventListener("click", async e => {
     return;
   }
 
+  if (a === "openNearbyMerchantsModal") {
+    const gid = btn.dataset.gid ? Number(btn.dataset.gid) : null;
+    await act(async () => {
+      const list = await api("/merchants/nearby");
+      modal(nearbyMerchantsModalContent(list, gid), true);
+    });
+    return;
+  }
+
+  if (a === "selectAllMerchants") {
+    const cbs = $$("#merchantPopupList input[type=checkbox]");
+    const allChecked = cbs.length > 0 && cbs.every(cb => cb.checked);
+    cbs.forEach(cb => { cb.checked = !allChecked; });
+    btn.textContent = allChecked ? "Select All" : "Deselect All";
+    return;
+  }
+
+  if (a === "inviteSingleMerchant") {
+    const gid = Number(btn.dataset.gid);
+    const uid = Number(btn.dataset.uid);
+    const name = btn.dataset.name || "Merchant";
+    await act(async () => {
+      await api(`/groups/${gid}/invite`, "POST", { user_id: uid });
+      toast(`Invitation sent to ${name}!`);
+      btn.disabled = true;
+      btn.textContent = "Invited ✓";
+    });
+    return;
+  }
+
+  if (a === "openCollectiveAuctionModal") {
+    const gid = Number(btn.dataset.gid || S.gid);
+    await act(async () => {
+      const g = await api(`/groups/${gid}`);
+      const members = g.members || [];
+      modal(html`
+        <h3>🤖 AI Group Collective Reverse Auction</h3>
+        <p class="sm muted">Post a pooled requirement on behalf of <b>${g.name}</b> members to regional wholesalers for competitive reverse bidding.</p>
+        <form data-f="collectiveAuction" data-gid="${gid}" class="form col mt">
+          <div class="field">
+            <label for="colProd">Product to Pool</label>
+            <select id="colProd" name="product" required>
+              <option value="Rice" selected>Rice</option>
+              <option value="Sugar">Sugar</option>
+              <option value="Sunflower Oil">Sunflower Oil</option>
+              <option value="Toor Dal">Toor Dal</option>
+              <option value="Wheat Flour">Wheat Flour</option>
+              <option value="Tea Powder">Tea Powder</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="colBudget">Target Budget (₹ optional)</label>
+            <input id="colBudget" name="budget" type="number" placeholder="e.g. 20000">
+          </div>
+          <div class="field">
+            <label for="colNote">Note for Wholesalers</label>
+            <input id="colNote" name="note" placeholder="Quality grade, preferred delivery...">
+          </div>
+
+          <div class="mt">
+            <label><b>Participating Group Merchants & Quantities:</b></label>
+            <table class="mt">
+              <thead><tr><th>Include</th><th>Shop</th><th>City</th><th>Quantity</th></tr></thead>
+              <tbody>
+                ${members.map(m => html`
+                  <tr>
+                    <td><input type="checkbox" name="part_uids" value="${m.id}" data-shop="${m.shop}" checked onchange="updateColTotal()"></td>
+                    <td><b>${m.shop}</b><br><small class="muted">${m.name}</small></td>
+                    <td>${m.city}</td>
+                    <td>
+                      <input type="number" name="qty_${m.id}" min="1" step="any" value="${m.id === S.uid ? "100" : "50"}" style="width:90px" oninput="updateColTotal()">
+                    </td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+            <div class="mt sm ok"><b>Total Pooled Volume: <span id="colTot">0</span> units</b></div>
+          </div>
+
+          <button class="btn ok mt lg">🤖 AI Launch Collective Auction to Wholesalers</button>
+        </form>
+      `, true);
+      if (typeof window.updateColTotal === "function") window.updateColTotal();
+    });
+    return;
+  }
+
+  if (a === "openLogUsageModal") {
+    const prod = btn.dataset.p || "Rice";
+    const unit = btn.dataset.u || "kg";
+    modal(html`
+      <h3>Log Daily Sales / Usage: ${prod}</h3>
+      <p class="sm muted">Logging sales deductions immediately feeds the predictive exponential smoothing forecast.</p>
+      <form data-f="logUsage" class="form col mt">
+        <input type="hidden" name="product" value="${prod}">
+        <div class="field">
+          <label for="uQty">Quantity Sold / Consumed (${unit})</label>
+          <input id="uQty" name="qty" type="number" min="0.1" step="any" value="5" required>
+        </div>
+        <button class="btn cyan mt">Save Usage & Deduct Shelf Stock</button>
+      </form>
+    `);
+    return;
+  }
+
+  if (a === "openSetStockModal") {
+    const prod = btn.dataset.p || "";
+    const currentStock = btn.dataset.s || "50";
+    modal(html`
+      <h3>${prod ? `Update Shelf Stock: ${prod}` : "Track New Product on Shelf"}</h3>
+      <form data-f="setStock" class="form col mt">
+        <div class="field">
+          <label for="sProd">Product</label>
+          ${prod ? html`
+            <input id="sProd" name="product" value="${prod}" readonly style="background:#f0f6ff">
+          ` : html`
+            <select id="sProd" name="product" required>
+              ${S.products.map(p => html`<option value="${p.name}">${p.name} (${p.unit})</option>`)}
+            </select>
+          `}
+        </div>
+        <div class="field">
+          <label for="sQty">Current In-Stock Quantity</label>
+          <input id="sQty" name="stock" type="number" min="0" step="any" value="${currentStock}" required>
+        </div>
+        <button class="btn cyan mt">Save Shelf Stock</button>
+      </form>
+    `);
+    return;
+  }
+
+  if (a === "openEditInventoryModal") {
+    const prod = btn.dataset.p;
+    const price = btn.dataset.price;
+    const stock = btn.dataset.stock;
+    const floor = btn.dataset.floor;
+    modal(html`
+      <h3>Edit Wholesaler Catalog: ${prod}</h3>
+      <form data-f="editInventory" class="form col mt">
+        <input type="hidden" name="product" value="${prod}">
+        <div class="field">
+          <label for="invStock">Stock Quantity</label>
+          <input id="invStock" name="stock_qty" type="number" min="0" step="any" value="${stock}" required>
+        </div>
+        <div class="field">
+          <label for="invPrice">List Price (₹)</label>
+          <input id="invPrice" name="price" type="number" min="1" step="0.5" value="${price}" required>
+        </div>
+        <div class="field">
+          <label for="invFloor">Protected Floor Price (₹ - Private for AI negotiator)</label>
+          <input id="invFloor" name="floor_price" type="number" min="1" step="0.5" value="${floor}" required>
+        </div>
+        <button class="btn cyan mt">Save Catalog Item</button>
+      </form>
+    `);
+    return;
+  }
+
   if (a === "openNewGroupModal") {
     modal(html`
       <h3>Create New Buying Group</h3>
@@ -552,7 +710,7 @@ document.addEventListener("click", async e => {
             <option value="public">Open (AI Auto-Approve)</option>
           </select>
         </div>
-        <button class="btn cyan mt">Create Group</button>
+        <button class="btn cyan mt">Create Group & Invite Merchants</button>
       </form>
     `);
     return;
@@ -833,15 +991,150 @@ document.addEventListener("submit", async e => {
     const type = form.type.value;
     await act(async () => {
       const res = await api("/groups", "POST", { name, description, category, city, type });
-      toast("Group created successfully!");
-      closeModal();
+      toast("Group created! Now invite nearby merchants to join.");
       S.gid = res.id;
       S.tab = "groups";
+      const list = await api("/merchants/nearby");
+      modal(nearbyMerchantsModalContent(list, res.id), true);
+      await render(true);
+    });
+    return;
+  }
+
+  if (f === "combineMerchants") {
+    const gid = form.dataset.gid ? Number(form.dataset.gid) : null;
+    const checked = $$("#merchantPopupList input[type=checkbox]:checked");
+    if (checked.length === 0) {
+      toast("Please select at least one merchant", true);
+      return;
+    }
+    await act(async () => {
+      if (gid) {
+        for (const cb of checked) {
+          const uid = Number(cb.value);
+          await api(`/groups/${gid}/invite`, "POST", { user_id: uid }).catch(() => {});
+        }
+        toast(`Invitations sent to ${checked.length} merchants!`);
+        closeModal();
+        await render();
+      } else {
+        const uids = checked.map(cb => Number(cb.value));
+        const me = S.me;
+        const gName = `${me.city} Combined Alliance`;
+        const g = await api("/groups", "POST", {
+          name: gName,
+          description: "Combined buying collective",
+          category: me.category,
+          city: me.city,
+          type: "invite"
+        });
+        for (const uid of uids) {
+          await api(`/groups/${g.id}/invite`, "POST", { user_id: uid }).catch(() => {});
+        }
+        toast(`Group '${gName}' created and ${uids.length} merchants invited!`);
+        closeModal();
+        S.gid = g.id;
+        S.tab = "groups";
+        await render();
+      }
+    });
+    return;
+  }
+
+  if (f === "collectiveAuction") {
+    const gid = Number(form.dataset.gid || S.gid);
+    const product = form.product.value;
+    const budget = form.budget && form.budget.value ? Number(form.budget.value) : null;
+    const note = form.note ? form.note.value : "";
+    const checkedUids = $$("input[name=part_uids]:checked");
+    if (checkedUids.length === 0) {
+      toast("Select at least one participating merchant", true);
+      return;
+    }
+    const participants = [];
+    for (const cb of checkedUids) {
+      const uid = Number(cb.value);
+      const shop = cb.dataset.shop || "Merchant";
+      const qInput = $(`input[name=qty_${uid}]`);
+      const qty = qInput ? Number(qInput.value || 0) : 0;
+      if (qty > 0) {
+        participants.push({ user_id: uid, shop, qty });
+      }
+    }
+    if (participants.length === 0) {
+      toast("Total pooled quantity must be greater than 0", true);
+      return;
+    }
+    await act(async () => {
+      await api(`/groups/${gid}/auctions`, "POST", { product, budget, note, participants });
+      toast(`AI Collective Reverse Auction launched with ${participants.length} merchants!`);
+      closeModal();
+      S.tab = "auctions";
+      await render();
+    });
+    return;
+  }
+
+  if (f === "logUsage") {
+    const product = form.product.value;
+    const qty = Number(form.qty.value);
+    await act(async () => {
+      await api("/stock/usage", "POST", { product, qty });
+      toast(`Logged sales usage for ${product}! Forecast model updated.`);
+      closeModal();
+      await render();
+    });
+    return;
+  }
+
+  if (f === "setStock") {
+    const product = form.product.value;
+    const stock = Number(form.stock.value);
+    await act(async () => {
+      await api("/stock/set", "POST", { product, stock });
+      toast(`Shelf stock updated for ${product}!`);
+      closeModal();
+      await render();
+    });
+    return;
+  }
+
+  if (f === "editInventory") {
+    const product = form.product.value;
+    const stock_qty = Number(form.stock_qty.value);
+    const price = Number(form.price.value);
+    const floor_price = Number(form.floor_price.value);
+    await act(async () => {
+      await api("/wholesaler/inventory", "POST", { product, stock_qty, price, floor_price });
+      toast(`Updated catalog for ${product}!`);
+      closeModal();
       await render();
     });
     return;
   }
 });
+
+// Helper for live filtering popup merchant directory
+window.filterMerchantPopupList = function(q) {
+  const term = (q || "").trim().toLowerCase();
+  const items = $$("#merchantPopupList .merchant-item");
+  items.forEach(el => {
+    const text = el.dataset.text || "";
+    el.style.display = (!term || text.includes(term)) ? "flex" : "none";
+  });
+};
+
+// Helper for live collective total calculation
+window.updateColTotal = function() {
+  const checked = $$("input[name=part_uids]:checked");
+  let total = 0;
+  checked.forEach(cb => {
+    const qEl = $(`input[name=qty_${cb.value}]`);
+    if (qEl) total += Number(qEl.value || 0);
+  });
+  const totSpan = $("#colTot");
+  if (totSpan) totSpan.textContent = num(total);
+};
 
 // Boot when ready
 if (document.readyState === "loading") {

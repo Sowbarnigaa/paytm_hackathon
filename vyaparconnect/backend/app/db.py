@@ -145,6 +145,7 @@ CREATE TABLE pool_commitments(
 CREATE TABLE demands(                                         -- merchant requirements; wholesalers bid
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id),
   product TEXT NOT NULL REFERENCES products(name), qty REAL NOT NULL, budget REAL, note TEXT,
+  group_id INTEGER REFERENCES groups(id), participants TEXT,
   status TEXT NOT NULL DEFAULT 'open', winner_bid_id INTEGER, created_at TEXT NOT NULL
 );
 CREATE TABLE bids(

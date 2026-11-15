@@ -271,7 +271,7 @@ def close_pool(pid: int, uid: int) -> dict:
 
 # ------------------------------------------------------------------ demands (reverse auction)
 
-def create_demand(uid: int, product: str, qty: float, budget, note: str = "") -> dict:
+def create_demand(uid: int, product: str, qty: float, budget, note: str = "", group_id: int | None = None, participants: list[dict] | None = None) -> dict:
     u = groups.get_user(uid)
     if u["role"] != "merchant":
         raise ApiError(403, "Only merchants post demands")
@@ -279,16 +279,43 @@ def create_demand(uid: int, product: str, qty: float, budget, note: str = "") ->
     if not prod:
         raise ApiError(400, "Unknown product")
     try:
-        qty = float(qty)
+        qty = float(qty) if qty is not None else 0.0
         budget = float(budget) if budget not in (None, "", 0) else None
     except (TypeError, ValueError):
         raise ApiError(400, "Quantity and budget must be numbers") from None
+
+    parts_json = None
+    cleaned_parts = []
+    if participants and isinstance(participants, list) and len(participants) > 0:
+        for p in participants:
+            try:
+                p_uid = int(p.get("user_id") or p.get("id"))
+                p_shop = str(p.get("shop") or p.get("name") or "Merchant")
+                p_qty = float(p.get("qty") or 0)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if p_qty > 0:
+                cleaned_parts.append({"user_id": p_uid, "shop": p_shop, "qty": p_qty})
+        if cleaned_parts:
+            parts_json = json.dumps(cleaned_parts)
+            qty = sum(p["qty"] for p in cleaned_parts)
+
     if qty <= 0:
         raise ApiError(400, "Quantity must be positive")
-    did = db.run("INSERT INTO demands(user_id,product,qty,budget,note,created_at) VALUES(?,?,?,?,?,?)",
-                 (uid, product, qty, budget, (note or "").strip()[:200], db.now_iso()))
+
+    did = db.run("INSERT INTO demands(user_id,product,qty,budget,note,group_id,participants,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                 (uid, product, qty, budget, (note or "").strip()[:200], group_id, parts_json, db.now_iso()))
+
+    label = f"New demand: {qty:g} {prod['unit']} {product} wanted by {u['shop']} ({u['city']})."
+    if group_id:
+        g = db.one("SELECT name FROM groups WHERE id=?", (group_id,))
+        if g:
+            label = f"New Collective Group Auction: {qty:g} {prod['unit']} {product} wanted by {g['name']} ({len(cleaned_parts) if cleaned_parts else 1} merchants)."
+            db.run("INSERT INTO posts(group_id,user_id,kind,body,status,created_at) VALUES(?,?,?,?,?,?)",
+                   (group_id, uid, "announcement", f"📢 🤖 AI published Collective Reverse Auction for {qty:g} {prod['unit']} {product} on behalf of group merchants to regional wholesalers! Wholesalers are now bidding.", "visible", db.now_iso()))
+
     for w in db.rows("SELECT wholesaler_id FROM catalog WHERE product=? AND stock_qty>=?", (product, qty)):
-        db.notify(w["wholesaler_id"], "demand", f"New demand: {qty:g} {prod['unit']} {product} wanted by {u['shop']} ({u['city']}).", f"demand:{did}")
+        db.notify(w["wholesaler_id"], "demand", label, f"demand:{did}")
     return {"id": did}
 
 
@@ -319,6 +346,23 @@ def demand_view(did: int, uid: int) -> dict:
         raise ApiError(404, "Demand not found")
     me = groups.get_user(uid)
     is_owner = d["user_id"] == uid
+
+    parts = []
+    if d.get("participants"):
+        try:
+            parts = json.loads(d["participants"])
+        except Exception:
+            parts = []
+    d["participants"] = parts
+    d["is_collective"] = bool(d.get("group_id") or parts)
+    if d.get("group_id"):
+        g = db.one("SELECT name, admin_id FROM groups WHERE id=?", (d["group_id"],))
+        d["group_name"] = g["name"] if g else None
+        d["group_admin_id"] = g["admin_id"] if g else None
+    else:
+        d["group_name"] = None
+        d["group_admin_id"] = None
+
     latest: dict[int, dict] = {}
     for b in db.rows("SELECT b.*, w.shop, w.name, w.city, w.rating_avg, w.rating_count FROM bids b JOIN users w ON w.id=b.wholesaler_id WHERE b.demand_id=? ORDER BY b.id", (did,)):
         latest[b["wholesaler_id"]] = b
@@ -337,7 +381,12 @@ def demand_view(did: int, uid: int) -> dict:
     stock = db.one("SELECT stock_qty FROM catalog WHERE wholesaler_id=? AND product=?", (uid, d["product"])) if me["role"] == "wholesaler" else None
     d["can_bid"] = d["status"] == "open" and me["role"] == "wholesaler" and bool(stock) and stock["stock_qty"] >= d["qty"]
     d["delivery_note"] = "Prices are for the product only. Delivery is quoted by the winning wholesaler after the deal is closed."
-    d["bids"] = ranked if is_owner else ([d["my_bid"]] if d["my_bid"] else [])
+
+    is_participant = any(p.get("user_id") == uid for p in parts)
+    is_group_admin = bool(d.get("group_admin_id") and d["group_admin_id"] == uid)
+    can_view_bids = is_owner or is_participant or is_group_admin
+    d["can_award"] = (is_owner or is_group_admin) and d["status"] == "open" and len(ranked) > 0
+    d["bids"] = ranked if can_view_bids else ([d["my_bid"]] if d["my_bid"] else [])
     return d
 
 
@@ -345,9 +394,9 @@ def list_demands(uid: int, q: str = "", category: str = "", product: str = "", c
     me = groups.get_user(uid)
     sql = "SELECT d.id FROM demands d JOIN users u ON u.id=d.user_id JOIN products p ON p.name=d.product WHERE 1=1"
     args: list = []
-    if me["role"] == "merchant":                        # merchants see only their own demand
-        sql += " AND d.user_id=?"
-        args.append(uid)
+    if me["role"] == "merchant":
+        sql += " AND (d.user_id=? OR (d.group_id IS NOT NULL AND d.group_id IN (SELECT group_id FROM memberships WHERE user_id=? AND status='active')))"
+        args.extend([uid, uid])
     if status:
         sql += " AND d.status=?"
         args.append(status)
@@ -398,7 +447,15 @@ def place_bid(did: int, uid: int, price: float) -> dict:
 def close_deal(did: int, uid: int, bid_id: int | None) -> dict:
     """The merchant initiates the close. Creates an order (awaiting the wholesaler's delivery quote)."""
     d = db.one("SELECT * FROM demands WHERE id=?", (did,))
-    if not d or d["user_id"] != uid:
+    if not d:
+        raise ApiError(404, "Demand not found")
+    is_owner = d["user_id"] == uid
+    is_admin = False
+    if d.get("group_id"):
+        g = groups.get_group_row(d["group_id"])
+        if g and g["admin_id"] == uid:
+            is_admin = True
+    if not (is_owner or is_admin):
         raise ApiError(404, "Demand not found")
     if d["status"] != "open":
         raise ApiError(400, "Already closed")
@@ -408,13 +465,25 @@ def close_deal(did: int, uid: int, bid_id: int | None) -> dict:
     chosen = next((b for b in v["bids"] if b["id"] == bid_id), None) if bid_id else v["bids"][0]
     if not chosen:
         raise ApiError(400, "That bid is not a live bid on this demand")
-    o = orders.place(uid, chosen["wholesaler_id"], [{"product": d["product"], "qty": d["qty"]}],
-                     source=f"demand:{did}", unit_prices={d["product"]: chosen["price"]})
+
+    parts = v.get("participants") or []
+    if parts:
+        order_ids = []
+        for p in parts:
+            o = orders.place(p["user_id"], chosen["wholesaler_id"], [{"product": d["product"], "qty": p["qty"]}],
+                             source=f"demand:{did}", unit_prices={d["product"]: chosen["price"]})
+            order_ids.append(o["order_id"])
+            db.notify(p["user_id"], "order", f"Collective auction for {d['product']} awarded to {chosen['shop']} at Rs {chosen['price']:g}/{v['unit']}. Order #{o['order_id']} created!", "orders")
+        o_res = {"order_id": order_ids[0], "order_ids": order_ids, "items_total": round(chosen["price"] * d["qty"], 2)}
+    else:
+        o_res = orders.place(d["user_id"], chosen["wholesaler_id"], [{"product": d["product"], "qty": d["qty"]}],
+                             source=f"demand:{did}", unit_prices={d["product"]: chosen["price"]})
+
     db.run("UPDATE demands SET status='closed', winner_bid_id=? WHERE id=?", (chosen["id"], did))
     for b in v["bids"]:
         if b["wholesaler_id"] != chosen["wholesaler_id"]:
             db.notify(b["wholesaler_id"], "bid", f"Demand #{did} ({d['product']}) was awarded to another wholesaler.")
-    return {"order": o, "winner": chosen["shop"], "price": chosen["price"],
+    return {"order": o_res, "order_id": o_res.get("order_id"), "winner": chosen["shop"], "price": chosen["price"],
             "saved_vs_market": round((v["base_price"] - chosen["price"]) * d["qty"], 2)}
 
 

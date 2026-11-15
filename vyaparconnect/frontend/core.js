@@ -112,12 +112,10 @@ function tabsFor() {
     return [
       ["home", "Home"],
       ["groups", "Groups"],
-      ["merchants", "Merchants"],
       ["auctions", "Auctions"],
       ["ai", "AI Buyer"],
       ["orders", "Orders"],
-      ["credit", "Credit & EMI"],
-      ["stock", "Inventory"]
+      ["credit", "Credit & EMI"]
     ];
   }
   return [
@@ -169,13 +167,11 @@ async function render(silent = false) {
     const titleObj = {
       home: isMerchant() ? "Home" : "Dashboard",
       groups: "Groups",
-      merchants: "Merchants",
       auctions: "Auctions & Deals",
       ai: "AI Buyer",
       orders: "Orders",
       credit: "Credit & EMI",
-      stock: "Inventory",
-      inventory: "Inventory",
+      inventory: "Wholesaler Inventory",
       notifs: "Notifications"
     };
     const titleEl = $("#pageTitle");
@@ -209,12 +205,10 @@ async function render(silent = false) {
   const views = {
     home: vHome,
     groups: vGroups,
-    merchants: vMerchants,
     auctions: vAuctions,
     ai: vAI,
     orders: vOrders,
     credit: vCredit,
-    stock: vStock,
     inventory: vStock,
     notifs: vNotifications
   };

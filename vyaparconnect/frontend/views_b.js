@@ -77,12 +77,16 @@ function demandCard(d) {
   const isWholesale = isWholesaler();
   const bids = d.bids || [];
   const isOpen = d.status === "open";
+  const isCollective = d.is_collective || (d.participants && d.participants.length > 0);
 
   return html`
-    <div class="card ${isOwner ? "hl" : ""}">
+    <div class="card ${isOwner || isCollective ? "hl" : ""}">
       <div class="spread">
         <div>
-          <h3>${d.product} - ${num(d.qty)} ${d.unit}</h3>
+          <h3>
+            ${d.product} - ${num(d.qty)} ${d.unit}
+            ${isCollective ? html`<span class="badge ai">👥 Collective Group Auction (${d.group_name || "Group"})</span>` : ""}
+          </h3>
           <div class="sm muted">${d.buyer_shop || d.buyer || "Merchant"} (${d.buyer_city || ""}) · ${ago(d.created_at)}</div>
         </div>
         <span class="badge ${isOpen ? "ok" : ""}">${isOpen ? (d.bid_count > 0 ? `${d.bid_count} bid(s)` : "Waiting for bids") : "Closed"}</span>
@@ -93,9 +97,20 @@ function demandCard(d) {
         ${d.note ? html`<div class="muted mt">“${d.note}”</div>` : ""}
       </div>
 
-      ${isOwner && bids.length > 0 ? html`
+      ${isCollective && d.participants && d.participants.length > 0 ? html`
+        <div class="mt sm ok">
+          <b>👥 Participating Merchants (${d.participants.length}):</b>
+          <div class="row mt" style="gap:4px">
+            ${d.participants.map(p => html`
+              <span class="participant-tag"><b>${p.shop}</b>: ${num(p.qty)} ${d.unit}</span>
+            `)}
+          </div>
+        </div>
+      ` : ""}
+
+      ${bids.length > 0 ? html`
         <div class="mt">
-          <h4>Ranked Wholesaler Bids (AI score)</h4>
+          <h4>Ranked Wholesaler Bids (AI Evaluated)</h4>
           <table>
             <thead>
               <tr><th>Rank</th><th>Wholesaler</th><th>Price</th><th>ETA</th><th>Score</th><th>Action</th></tr>
@@ -105,13 +120,15 @@ function demandCard(d) {
                 <tr>
                   <td><b>${b.rank === 1 ? "🏆 1" : `#${b.rank}`}</b></td>
                   <td>${b.shop}</td>
-                  <td><b>${inr(b.price)}/${d.unit}</b><br><small class="muted">${inr(b.total)}</small></td>
+                  <td><b>${inr(b.price)}/${d.unit}</b><br><small class="muted">Total: ${inr(b.total)}</small></td>
                   <td>${b.eta_days}d</td>
                   <td><span class="badge ai">AI score ${b.score}</span></td>
                   <td>
-                    ${isOpen ? html`
-                      <button class="btn sm cyan" data-a="awardDemand" data-did="${d.id}" data-bid="${b.id}">Award</button>
-                    ` : html`<span class="badge ok">Awarded</span>`}
+                    ${d.can_award ? html`
+                      <button class="btn sm ok" data-a="awardDemand" data-did="${d.id}" data-bid="${b.id}">
+                        ${isCollective ? "Award & Split Orders" : "Award Bid"}
+                      </button>
+                    ` : (isOpen ? html`<span class="muted sm">Live</span>` : html`<span class="badge ok">Awarded</span>`)}
                   </td>
                 </tr>
               `)}
@@ -216,7 +233,7 @@ function aiProc() {
     <div class="card hl mb">
       <form data-f="procure">
         <label for="ptext"><b>Tell the agent what you need</b> (Supports English, Tamil & Hindi terms: e.g. <i>50 kg arisi, 20 L oil, 2 quintal chawal, budget 6000</i>)</label>
-        <textarea id="ptext" name="text" required class="mt">${S.procText || "50 kg rice, 20 L oil, budget 6000"}</textarea>
+        <textarea id="ptext" name="text" required class="mt" style="font-size:14px;min-height:80px">${S.procText || "50 kg rice, 20 L oil, budget 6000"}</textarea>
         <div class="row spread mt">
           <div class="row">
             <div class="field">
@@ -229,10 +246,10 @@ function aiProc() {
               </select>
             </div>
             ${SpeechRec ? html`
-              <button type="button" class="btn sec sm" data-a="speechToText">🎤 Speak in Tamil / Hindi / English</button>
+              <button type="button" class="btn voice sm" data-a="speechToText">🎤 Speak in Tamil / Hindi / English</button>
             ` : ""}
           </div>
-          <button class="btn cyan">Find best suppliers</button>
+          <button class="btn cyan lg">🔍 Find Best Suppliers</button>
         </div>
       </form>
     </div>
@@ -319,7 +336,7 @@ async function aiNeg() {
           <label for="negMax">Max price per unit you will pay (₹)</label>
           <input id="negMax" name="max_price" type="number" step="0.5" value="52" required>
         </div>
-        <button class="btn cyan">Start Autonomous Haggling</button>
+        <button class="btn cyan lg">⚡ Start Autonomous Haggling</button>
       </form>
     </div>
 
@@ -349,7 +366,7 @@ async function aiNeg() {
 
         ${neg.status === "deal" && !neg.order_id ? html`
           <div class="mt row">
-            <button class="btn cyan" data-a="acceptNeg" data-id="${neg.id}">Accept deal & create order</button>
+            <button class="btn ok lg" data-a="acceptNeg" data-id="${neg.id}">🤝 Accept Deal & Place Order (${inr(neg.agreed_price)}/${neg.unit})</button>
           </div>
         ` : ""}
       </div>

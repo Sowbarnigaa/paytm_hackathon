@@ -241,7 +241,15 @@ def demands(q: str = "", category: str = "", product: str = "", city: str = "", 
 
 @app.post("/api/demands")
 def create_demand(body: dict = Body(...), uid: int = UID):
-    return market.create_demand(uid, body.get("product"), body.get("qty"), body.get("budget"), body.get("note", ""))
+    return market.create_demand(uid, body.get("product"), body.get("qty"), body.get("budget"), body.get("note", ""),
+                                body.get("group_id"), body.get("participants"))
+
+
+@app.post("/api/groups/{gid}/auctions")
+def group_create_auction(gid: int, body: dict = Body(...), uid: int = UID):
+    groups.require_member(gid, uid)
+    return market.create_demand(uid, body.get("product"), body.get("qty", 0), body.get("budget"), body.get("note", ""),
+                                group_id=gid, participants=body.get("participants"))
 
 
 @app.get("/api/demands/{did}")

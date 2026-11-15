@@ -210,6 +210,20 @@ def seed() -> None:
         demand("Anand", "Sugar", 200, None, "Weekly stock", [(3, 0.99)])
         demand("Imran", "Rice", 400, None, "", [])
 
+        # Collective group reverse auction seeded
+        col_parts = json.dumps([
+            {"user_id": uid_of["Kumar"], "shop": "Kumar Stores", "qty": 150},
+            {"user_id": uid_of["Lakshmi"], "shop": "Lakshmi Provision", "qty": 100},
+            {"user_id": uid_of["Senthil"], "shop": "Senthil Mart", "qty": 100}
+        ])
+        did_col = c.execute("INSERT INTO demands(user_id,product,qty,budget,note,group_id,participants,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                            (uid_of["Kumar"], "Rice", 350, 19000, "Collective group procurement for Erode Grocery Buyers", 1, col_parts, ts)).lastrowid
+        for w, f in [(1, 0.95), (2, 0.94), (5, 0.97)]:
+            row = c.execute("SELECT price FROM catalog WHERE wholesaler_id=? AND product=?", (w, "Rice")).fetchone()
+            if row:
+                c.execute("INSERT INTO bids(demand_id,wholesaler_id,price,created_at) VALUES(?,?,?,?)",
+                          (did_col, w, round(row["price"] * f, 2), ts))
+
         # ---- Ravi: one delivered order awaiting review (shows the 'rate your purchase' flow)
         items = json.dumps([{"product": "Rice", "qty": 50, "unit_price": 53.5}])
         c.execute("INSERT INTO orders(user_id,wholesaler_id,items,items_total,delivery_charge,delivery_note,total,source,status,"

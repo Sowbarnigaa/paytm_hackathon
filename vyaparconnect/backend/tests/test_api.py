@@ -268,6 +268,35 @@ def test_empty_demand_cannot_be_closed_and_can_be_cancelled(c):
     assert c.post("/api/demands", json={"product": "Salt", "qty": 5}, headers=H(MURUGAN)).status_code == 403
 
 
+def test_collective_group_auction_and_participants_orders(c):
+    # Kumar posts a collective reverse auction for Group 1 with 2 participating merchants
+    participants = [
+        {"user_id": KUMAR, "shop": "Kumar Stores", "qty": 60},
+        {"user_id": 9, "shop": "Lakshmi Provision", "qty": 40}
+    ]
+    res = ok(c.post("/api/groups/1/auctions", json={
+        "product": "Sugar",
+        "budget": 4500,
+        "note": "Collective bulk buy for festival",
+        "participants": participants
+    }, headers=H(KUMAR)))
+    did = res["id"]
+
+    d_view = ok(c.get(f"/api/demands/{did}", headers=H(KUMAR)))
+    assert d_view["is_collective"] is True
+    assert d_view["group_name"] == "Erode Grocery Buyers"
+    assert len(d_view["participants"]) == 2
+    assert d_view["qty"] == 100
+
+    # Wholesaler bids
+    ok(c.post(f"/api/demands/{did}/bids", json={"price": 38.0}, headers=H(MURUGAN)))
+
+    # Award the collective auction -> orders created for both participants
+    close_res = ok(c.post(f"/api/demands/{did}/close", json={}, headers=H(KUMAR)))
+    assert len(close_res["order"]["order_ids"]) == 2
+    assert close_res["winner"] == "Murugan Traders"
+
+
 def test_group_pool_on_a_sale_unlocks_tier_pricing(c):
     sid = db.one("SELECT id FROM sales WHERE wholesaler_id=? AND product='Rice'", (MURUGAN,))["id"]
     pid = ok(c.post(f"/api/sales/{sid}/pools", json={"group_id": 1}, headers=H(KUMAR)))["id"]
