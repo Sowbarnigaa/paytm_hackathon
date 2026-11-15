@@ -1,4 +1,5 @@
-"""Credit scoring, loan offers and EMI autopay (all simulated - no real lending or UPI mandate)."""
+"""Credit scoring, CIBIL-style bureau check, loan offers and EMI autopay.
+ALL SIMULATED: no real bureau pull, lending or UPI mandate. The 'bureau score' is a stored demo value per merchant."""
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -28,15 +29,16 @@ def breakdown(uid: int) -> dict:
         raise ApiError(404, "User not found")
     bureau = u["credit_score"]
     ontime = round((u["on_time_rate"] - 0.85) * 100)
-    n_orders = db.one("SELECT COUNT(*) n FROM orders WHERE user_id=?", (uid,))["n"]
+    n_orders = db.one("SELECT COUNT(*) n FROM orders WHERE user_id=? AND status!='cancelled'", (uid,))["n"]
     orders = min(15, n_orders * 3)
     groups_n = db.one("SELECT COUNT(*) n FROM memberships WHERE user_id=? AND status='active'", (uid,))["n"]
     group = 0 if groups_n == 0 else (10 if groups_n == 1 else 15)
+    rating = round((u["rating_avg"] - 3) * 5) if u["rating_count"] else 0           # +-10 pts from 1-5 star reviews
     paid = db.one("SELECT COALESCE(SUM(paid_emis),0) n FROM loans WHERE user_id=?", (uid,))["n"]
     emi_bonus = min(30, paid * 2)
     parts = [("Bureau score", bureau), ("On-time payment history", ontime),
-             ("Procurement activity on Paytm", orders), ("Group membership (trust)", group),
-             ("On-time EMIs repaid", emi_bonus)]
+             ("Procurement activity on Paytm", orders), ("Group membership", group),
+             ("Review rating (1-5 stars)", rating), ("On-time EMIs repaid", emi_bonus)]
     composite = max(300, min(900, sum(v for _, v in parts)))
     return {"composite": composite, "groups": groups_n,
             "factors": [{"name": n, "points": v} for n, v in parts]}
@@ -131,3 +133,41 @@ def pay_emi(lid: int, uid: int, mode: str) -> dict:
     paid = l["paid_emis"] + 1
     db.run("UPDATE loans SET paid_emis=?, status=? WHERE id=?", (paid, "closed" if paid >= l["tenure"] else "active", lid))
     return get_loan(lid, uid)
+
+
+# ------------------------------------------------------------------ CIBIL-style bureau check (SIMULATED)
+
+DEMO_OTP = "123456"          # stand-in for the OTP a real bureau/consent flow would send to the merchant's mobile
+BANDS = [(750, "Excellent", "Eligible for the best Paytm credit offers."), (700, "Good", "Eligible for most offers."),
+         (650, "Fair", "Limited offers - improve on-time payments."), (0, "Needs work", "Build history with small, on-time orders.")]
+
+
+def _band(score: int) -> dict:
+    _, name, tip = next(b for b in BANDS if score >= b[0])
+    return {"band": name, "tip": tip}
+
+
+def cibil_status(uid: int) -> dict:
+    u = db.one("SELECT * FROM users WHERE id=?", (uid,))
+    if not u:
+        raise ApiError(404, "User not found")
+    if u["role"] != "merchant":
+        return {"eligible": False, "reason": "Credit score check is for merchants only", "checked": None}
+    c = db.one("SELECT * FROM cibil_checks WHERE user_id=?", (uid,))
+    return {"eligible": True, "checked": ({"score": c["score"], "checked_at": c["checked_at"], **_band(c["score"])} if c else None),
+            "simulated": True}
+
+
+def cibil_check(uid: int, consent: bool, otp: str) -> dict:
+    """Authenticated (consent + OTP) soft check. The returned score is the merchant's stored demo bureau value."""
+    u = db.one("SELECT * FROM users WHERE id=?", (uid,))
+    if not u or u["role"] != "merchant":
+        raise ApiError(403, "Credit score check is available to merchants only")
+    if not consent:
+        raise ApiError(400, "Please give consent to fetch your credit score")
+    if str(otp or "").strip() != DEMO_OTP:
+        raise ApiError(401, "Invalid OTP")
+    score = max(300, min(900, int(u["credit_score"])))
+    db.run("INSERT INTO cibil_checks VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET score=excluded.score, checked_at=excluded.checked_at",
+           (uid, score, db.now_iso()))
+    return cibil_status(uid)
