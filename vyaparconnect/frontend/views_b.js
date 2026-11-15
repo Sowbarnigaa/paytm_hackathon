@@ -39,6 +39,7 @@ async function vAuctions() {
         <h2>Auctions & Direct Sales</h2>
         <div class="sm muted">Post purchase requirements for supplier reverse bidding, or browse wholesale bulk & clearance sales.</div>
       </div>
+      ${isWholesaler() ? html`<button class="btn cyan" data-a="openListSaleModal">+ List a Sale</button>` : ""}
     </div>
 
     ${isMerchantUser ? html`
@@ -240,27 +241,42 @@ function aiProc() {
     <div class="card hl mb">
       <form data-f="procure">
         <label for="ptext"><b>Tell the agent what you need</b> (Supports English, Tamil & Hindi terms: e.g. <i>50 kg arisi, 20 L oil, 2 quintal chawal, budget 6000</i>)</label>
-        <textarea id="ptext" name="text" required class="mt" style="font-size:14px;min-height:80px">${S.procText || "50 kg rice, 20 L oil, budget 6000"}</textarea>
-        <div class="row spread mt">
-          <div class="row">
-            <div class="field">
-              <label for="sortMode">Sort suppliers by</label>
-              <select id="sortMode" name="sort">
-                <option value="best">Best overall (Price 50%, Rating 30%, ETA 20%)</option>
-                <option value="price">Lowest goods price</option>
-                <option value="rating">Highest rated supplier</option>
-                <option value="eta">Fastest arrival time</option>
-              </select>
-            </div>
-            ${SpeechRec ? html`
-              <div class="field">
-                <label for="voiceLang">Voice language</label>
-                <select id="voiceLang">
-                  ${[["en-IN", "English"], ["ta-IN", "Tamil"], ["hi-IN", "Hindi"]].map(([v, l]) => html`<option value="${v}" ${(S.voiceLang || "en-IN") === v ? "selected" : ""}>${l}</option>`)}
+        <div class="composer mt" id="composer">
+          <textarea id="ptext" name="text" required rows="3" placeholder="e.g. 50 kg rice, 20 L oil, budget 6000">${S.procText || "50 kg rice, 20 L oil, budget 6000"}</textarea>
+          ${SpeechRec ? html`
+            <div class="composer-bar">
+              <div class="rec-idle">
+                <select id="voiceLang" class="lang" aria-label="Voice language" title="Voice language">
+                  ${[["en-IN", "English"], ["ta-IN", "தமிழ்"], ["hi-IN", "हिन्दी"]].map(([v, l]) => html`<option value="${v}" ${(S.voiceLang || "en-IN") === v ? "selected" : ""}>${l}</option>`)}
                 </select>
               </div>
-              <button type="button" class="btn voice sm" data-a="speechToText">🎤 Speak</button>
-            ` : ""}
+              <div class="rec-live" aria-live="polite">
+                <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                <span class="rec-label sm">Listening…</span>
+              </div>
+              <div class="composer-actions">
+                <button type="button" class="mic mic-idle rec-idle" id="micBtn" data-a="speechToText" aria-label="Dictate with voice" title="Dictate">
+                  <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8.5 21h7"/></svg>
+                </button>
+                <button type="button" class="mic mic-cancel rec-live" data-a="micCancel" aria-label="Cancel dictation" title="Cancel">
+                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+                <button type="button" class="mic mic-done rec-live" data-a="micDone" aria-label="Use dictated text" title="Done">
+                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+                </button>
+              </div>
+            </div>
+          ` : ""}
+        </div>
+        <div class="row spread mt">
+          <div class="field">
+            <label for="sortMode">Sort suppliers by</label>
+            <select id="sortMode" name="sort">
+              <option value="best">Best overall (Price 50%, Rating 30%, ETA 20%)</option>
+              <option value="price">Lowest goods price</option>
+              <option value="rating">Highest rated supplier</option>
+              <option value="eta">Fastest arrival time</option>
+            </select>
           </div>
           <button class="btn cyan lg">🔍 Find Best Suppliers</button>
         </div>
@@ -753,11 +769,14 @@ async function vNotifications() {
       ${items.length === 0 ? html`<p class="muted">No notifications.</p>` : html`
         <div class="notifs-list">
           ${items.map(n => html`
-            <div class="post ${n.is_read ? "" : "hl"}">
+            <div class="post notif ${n.is_read ? "" : "hl"}" role="button" tabindex="0" data-a="openNotif" data-kind="${n.kind || ""}" data-link="${n.link || ""}" title="Open">
               <div class="spread">
                 <span><b>${String(n.kind || "").toUpperCase()}</b> · ${n.text}</span>
-                <span class="sm muted">${ago(n.created_at)}</span>
+                <span class="sm muted">${ago(n.created_at)} ›</span>
               </div>
+              ${n.link && /^group:\d+$/.test(n.link) && /invited/i.test(n.text) ? html`<div class="row mt">
+                <button class="btn cyan sm" data-a="joinDirect" data-id="${n.link.split(":")[1]}">Accept invite</button>
+              </div>` : ""}
             </div>
           `)}
         </div>

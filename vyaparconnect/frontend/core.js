@@ -199,14 +199,6 @@ function renderNav() {
           </button>
         `)}
       </div>
-      <div class="seg">
-        <div class="seg-h"><span>Quick Actions</span></div>
-        <button class="ni sm ${S.tab === "notifs" ? "on" : ""}" data-a="gotoNotifs">
-          <span class="dot"></span>
-          <span>Notifications</span>
-          ${S.me && S.me.unread > 0 ? html`<span class="cnt">${S.me.unread}</span>` : ""}
-        </button>
-      </div>
     `.s;
   }
   updateBell();

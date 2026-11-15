@@ -400,7 +400,8 @@ async function vGroups() {
     api("/groups/recommendations")
   ]);
   const mine = gs.filter(g => g.my_status === "active");
-  const others = gs.filter(g => g.my_status !== "active");
+  const invited = gs.filter(g => g.my_status === "invited");
+  const others = gs.filter(g => g.my_status !== "active" && g.my_status !== "invited");
   const recs = recsData.groups || [];
 
   return html`
@@ -411,6 +412,22 @@ async function vGroups() {
       </div>
       ${isMerchant() ? html`<button class="btn cyan" data-a="openNewGroupModal">+ Create group</button>` : ""}
     </div>
+
+    ${invited.length > 0 ? html`
+      <div class="card hl mb">
+        <h3>📩 Group invitations (${invited.length})</h3>
+        <p class="sm muted">You have been invited by a group admin. Accept to join instantly - no approval needed.</p>
+        ${invited.map(g => html`
+          <div class="row spread mt">
+            <span><b>${g.name}</b> <span class="muted sm">(${g.city} · ${g.category} · ${g.merchants !== undefined ? g.merchants : (g.members || 0)} merchants · admin ${g.admin_name || "Admin"})</span></span>
+            <span class="row">
+              <button class="btn sec sm" data-a="openGroup" data-id="${g.id}">View</button>
+              <button class="btn cyan sm" data-a="joinDirect" data-id="${g.id}">Accept invite</button>
+            </span>
+          </div>
+        `)}
+      </div>
+    ` : ""}
 
     <h3>My groups</h3>
     ${mine.length === 0 ? html`

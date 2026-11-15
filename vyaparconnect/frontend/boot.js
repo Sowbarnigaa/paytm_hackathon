@@ -119,11 +119,32 @@ document.addEventListener("click", async e => {
   if (a === "joinDirect") {
     const gid = Number(btn.dataset.id);
     await act(async () => {
-      const res = await api(`/groups/${gid}/join`, "POST");
+      const res = await api(`/groups/${gid}/join`, "POST", {});
       toast(res.message || "Joined group!");
       await loadMe();
+      if (res.status === "active") {   // take the merchant straight into the group they just joined
+        S.gid = gid;
+        S.tab = "groups";
+        S.gtab = "feed";
+      }
       await render();
     });
+    return;
+  }
+
+  if (a === "openNotif" || a === "openLink") {
+    // Destination comes from the notification's link; if it has none, fall back to its type.
+    const [lk, id] = String(btn.dataset.link || "").split(":");
+    const byKind = { group: "groups", moderation: "groups", pool: "groups", order: "orders", payment: "orders", review: "orders",
+                     bid: "auctions", demand: "auctions", sale: "auctions" };
+    const target = lk || byKind[btn.dataset.kind] || "";
+    S.gid = null;
+    if (target === "group" && id) { S.gid = Number(id); S.tab = "groups"; S.gtab = "feed"; }
+    else if (target === "groups") S.tab = "groups";
+    else if (target === "order" || target === "orders") S.tab = "orders";
+    else if (target === "demand" || target === "sale" || target === "auctions") S.tab = "auctions";
+    else { toast("Nothing to open for this notification"); return; }
+    await render();
     return;
   }
 
@@ -240,27 +261,105 @@ document.addEventListener("click", async e => {
   }
 
   if (a === "speechToText") {
-    if (!SpeechRec) return;
+    // ChatGPT-style dictation: words stream into the text box live; ✕ discards them, ✓ keeps them.
+    if (!SpeechRec || S.rec) return;
+    const txt = $("#ptext"), box = $("#composer");
+    if (!txt || !box) return;
     const sel = $("#voiceLang");
     const lang = (sel && sel.value) || S.voiceLang || "en-IN";
     S.voiceLang = lang;
-    const label = { "en-IN": "English", "ta-IN": "Tamil", "hi-IN": "Hindi" }[lang] || lang;
+    const base = txt.value.trim();
+    const join = spoken => (base ? base + " " : "") + spoken;
+    let cancelled = false;
     const rec = new SpeechRec();
-    rec.lang = lang;           // the recogniser only transcribes one language per session, so the user picks it
-    rec.interimResults = false;
+    rec.lang = lang;          // the recogniser transcribes one language per session, so the user picks it
+    rec.continuous = true;
+    rec.interimResults = true;
     rec.maxAlternatives = 1;
     rec.onresult = e => {
-      const transcript = e.results[0][0].transcript;
-      const txt = $("#ptext");
-      if (txt) {
-        txt.value = transcript;
-        S.procText = transcript;
-        toast(`Voice input (${label}): "${transcript}"`);
-      }
+      let spoken = "";
+      for (let i = 0; i < e.results.length; i++) spoken += e.results[i][0].transcript;
+      txt.value = join(spoken.trim());
+      txt.scrollTop = txt.scrollHeight;
     };
-    rec.onerror = ev => toast(ev && ev.error === "not-allowed" ? "Microphone permission denied" : "Speech recognition error", true);
-    rec.start();
-    toast(`Listening in ${label}...`);
+    rec.onerror = ev => {
+      if (ev && ev.error === "no-speech") return;
+      if (ev && ev.error === "aborted") return;
+      toast(ev && (ev.error === "not-allowed" || ev.error === "service-not-allowed") ? "Microphone permission denied" : "Speech recognition error", true);
+    };
+    rec.onend = () => {
+      S.rec = null;
+      const t = $("#ptext"), b = $("#composer");
+      if (t) { if (cancelled) t.value = base; S.procText = t.value; t.focus(); }
+      if (b) b.classList.remove("recording");
+    };
+    S.rec = rec;
+    S.recCancel = () => { cancelled = true; rec.abort(); };
+    box.classList.add("recording");
+    try { rec.start(); } catch { S.rec = null; box.classList.remove("recording"); }
+    return;
+  }
+
+  if (a === "micDone") {
+    if (S.rec) S.rec.stop();
+    return;
+  }
+
+  if (a === "micCancel") {
+    if (S.rec && S.recCancel) S.recCancel();
+    return;
+  }
+
+  if (a === "quickSale" || a === "openListSaleModal") {
+    await act(async () => {
+      const inv = await api("/wholesaler/inventory");
+      const items = (inv.items || []).filter(it => it.stock_qty > 0);
+      if (items.length === 0) { toast("Add stock to your inventory before listing a sale", true); return; }
+      const want = btn.dataset.p;
+      if (want && !items.some(it => it.product === want)) {
+        toast(`You don't stock ${want} yet - add it in Inventory first`, true);
+        return;
+      }
+      S.saleItems = items;
+      const first = items.find(it => it.product === want) || items[0];
+      modal(html`
+        <h3>List a Sale</h3>
+        <p class="sm muted">Merchants who buy this product are notified. Prices are for goods only; delivery is quoted per order.</p>
+        <form data-f="newSale" class="form col mt">
+          <div class="field">
+            <label for="slP">Product</label>
+            <select id="slP" name="product" required>
+              ${items.map(it => html`<option value="${it.product}" ${it.product === first.product ? "selected" : ""}>${it.product} (${num(it.stock_qty)} ${it.unit} in stock)</option>`)}
+            </select>
+          </div>
+          <div class="field">
+            <label for="slK">Sale type</label>
+            <select id="slK" name="kind">
+              <option value="bulk">Bulk deal</option>
+              <option value="clearance">Clearance</option>
+              <option value="seasonal">Seasonal</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="slQ">Quantity on sale (max <span id="slMax">${num(first.stock_qty)}</span> <span class="slU">${first.unit}</span>)</label>
+            <input id="slQ" name="qty_limit" type="number" min="1" step="any" required>
+          </div>
+          <div class="field">
+            <label>Price tiers (min qty → ₹ per <span class="slU">${first.unit}</span>)</label>
+            <div class="row"><input name="q0" type="number" value="0" readonly style="width:90px"><input name="p0" type="number" step="0.5" min="0.5" required style="width:100px"></div>
+            <div class="row mt"><input name="q1" type="number" min="1" step="any" required style="width:90px"><input name="p1" type="number" step="0.5" min="0.5" required style="width:100px"></div>
+            <div class="row mt"><input name="q2" type="number" min="1" step="any" required style="width:90px"><input name="p2" type="number" step="0.5" min="0.5" required style="width:100px"></div>
+            <div class="sm muted mt" id="slHint"></div>
+          </div>
+          <div class="field">
+            <label for="slD">Sale runs for (days)</label>
+            <input id="slD" name="days" type="number" min="1" max="60" value="7" required>
+          </div>
+          <button class="btn cyan mt">Publish Sale</button>
+        </form>
+      `);
+      fillSaleDefaults();
+    });
     return;
   }
 
@@ -920,6 +1019,25 @@ document.addEventListener("submit", async e => {
     return;
   }
 
+  if (f === "newSale") {
+    const product = form.product.value;
+    const it = (S.saleItems || []).find(x => x.product === product);
+    const tiers = [0, 1, 2].map(i => ({ min_qty: Number(form[`q${i}`].value), price: Number(form[`p${i}`].value) }));
+    if (it) {
+      const low = tiers.find(t => t.price < it.floor_price);
+      if (low) { toast(`A tier price is below your floor price of ${inr(it.floor_price)}`, true); return; }
+    }
+    const body = { product, kind: form.kind.value, tiers, qty_limit: Number(form.qty_limit.value), days: Number(form.days.value) };
+    await act(async () => {
+      await api("/sales", "POST", body);
+      toast(`${product} sale published - interested merchants notified`);
+      closeModal();
+      S.tab = "auctions";
+      await render();
+    });
+    return;
+  }
+
   if (f === "newDeal") {
     const gid = Number(form.dataset.gid || S.gid);
     const product = form.product.value;
@@ -1235,6 +1353,39 @@ document.addEventListener("submit", async e => {
     });
     return;
   }
+});
+
+// Keyboard access for clickable notification rows.
+document.addEventListener("keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target && e.target.matches && e.target.matches("[data-a=openNotif]")) {
+    e.preventDefault();
+    e.target.click();
+  }
+});
+
+// List-sale modal: defaults come from the wholesaler's live inventory (list price, floor price, stock).
+function fillSaleDefaults() {
+  const form = document.querySelector("form[data-f=newSale]");
+  if (!form) return;
+  const it = (S.saleItems || []).find(x => x.product === form.product.value);
+  if (!it) return;
+  const r2 = n => Math.round(n * 2) / 2;
+  const q1 = Math.max(1, Math.round(it.stock_qty * 0.25)), q2 = Math.max(q1 + 1, Math.round(it.stock_qty * 0.5));
+  form.qty_limit.value = Math.max(1, Math.round(it.stock_qty * 0.8));
+  form.qty_limit.max = it.stock_qty;
+  form.p0.value = it.price;
+  form.p1.value = Math.max(0.5, r2(it.price * 0.97));
+  form.p2.value = Math.max(0.5, r2(it.price * 0.94));
+  form.q1.value = q1;
+  form.q2.value = q2;
+  document.querySelectorAll(".slU").forEach(e => { e.textContent = it.unit; });
+  const mx = document.getElementById("slMax"); if (mx) mx.textContent = num(it.stock_qty);
+  const hint = document.getElementById("slHint");
+  if (hint) hint.textContent = `List price ${inr(it.price)}/${it.unit}. Your private floor is ${inr(it.floor_price)}/${it.unit} - tiers below it are blocked.`;
+}
+
+document.addEventListener("change", e => {
+  if (e.target && e.target.closest && e.target.closest("form[data-f=newSale]") && e.target.name === "product") fillSaleDefaults();
 });
 
 // Negotiator: switching wholesaler / product refreshes the live price, stock and suggested limit.
