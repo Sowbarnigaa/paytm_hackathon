@@ -2,6 +2,29 @@
 "use strict";
 
 // ------------------------------------------------------------------ AUCTIONS & DEMANDS (REVERSE AUCTIONS)
+function demandRowHtml(removable) {
+  const products = (S.products && S.products.length) ? S.products : [{ name: "Rice", unit: "kg" }, { name: "Sugar", unit: "kg" }];
+  return html`
+    <div class="dem-row row mt" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+      <div class="field">
+        <label>Product</label>
+        <select name="product" required>
+          ${products.map(p => html`<option value="${p.name}">${p.name}${p.unit ? ` (${p.unit})` : ""}</option>`)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Quantity</label>
+        <input name="qty" type="number" min="1" step="any" value="100" required>
+      </div>
+      <div class="field">
+        <label>Target Budget (₹ optional)</label>
+        <input name="budget" type="number" min="0" placeholder="e.g. 4500">
+      </div>
+      ${removable ? html`<button type="button" class="btn bad sm" data-a="removeDemandRow">Remove</button>` : ""}
+    </div>
+  `;
+}
+
 async function vAuctions() {
   const me = S.me;
   const isMerchantUser = isMerchant();
@@ -16,37 +39,21 @@ async function vAuctions() {
         <h2>Auctions & Direct Sales</h2>
         <div class="sm muted">Post purchase requirements for supplier reverse bidding, or browse wholesale bulk & clearance sales.</div>
       </div>
-      ${isMerchantUser ? html`<button class="btn cyan" data-a="openAuctionForm">+ Post Buy Requirement</button>` : ""}
     </div>
 
     ${isMerchantUser ? html`
       <div class="card hl mb">
         <h3>Post a Demand / Reverse Auction</h3>
-        <form data-f="auction" class="form mt">
-          <div class="field">
-            <label for="aucProd">Product</label>
-            <select id="aucProd" name="product" required>
-              <option value="Rice">Rice</option>
-              <option value="Sugar" selected>Sugar</option>
-              <option value="Sunflower Oil">Sunflower Oil</option>
-              <option value="Toor Dal">Toor Dal</option>
-              <option value="Wheat Flour">Wheat Flour</option>
-              <option value="Tea Powder">Tea Powder</option>
-            </select>
+        <form data-f="auction" class="mt">
+          <div id="demRows">${demandRowHtml(false)}</div>
+          <div class="row mt">
+            <button type="button" class="btn sec sm" data-a="addDemandRow">+ Add another product</button>
           </div>
-          <div class="field">
-            <label for="aucQty">Quantity</label>
-            <input id="aucQty" name="qty" type="number" min="1" step="any" value="100" required>
-          </div>
-          <div class="field">
-            <label for="aucBudget">Target Budget (₹ optional)</label>
-            <input id="aucBudget" name="budget" type="number" placeholder="e.g. 4500">
-          </div>
-          <div class="field" style="flex:1;min-width:180px">
-            <label for="aucNote">Note</label>
+          <div class="field mt" style="max-width:520px">
+            <label for="aucNote">Note (applies to all products)</label>
             <input id="aucNote" name="note" placeholder="Quality grade, preferred delivery...">
           </div>
-          <button class="btn cyan">Post to Wholesalers</button>
+          <button class="btn cyan mt">Post to Wholesalers</button>
         </form>
       </div>
     ` : ""}
@@ -246,7 +253,13 @@ function aiProc() {
               </select>
             </div>
             ${SpeechRec ? html`
-              <button type="button" class="btn voice sm" data-a="speechToText">🎤 Speak in Tamil / Hindi / English</button>
+              <div class="field">
+                <label for="voiceLang">Voice language</label>
+                <select id="voiceLang">
+                  ${[["en-IN", "English"], ["ta-IN", "Tamil"], ["hi-IN", "Hindi"]].map(([v, l]) => html`<option value="${v}" ${(S.voiceLang || "en-IN") === v ? "selected" : ""}>${l}</option>`)}
+                </select>
+              </div>
+              <button type="button" class="btn voice sm" data-a="speechToText">🎤 Speak</button>
             ` : ""}
           </div>
           <button class="btn cyan lg">🔍 Find Best Suppliers</button>
@@ -303,41 +316,56 @@ function aiProc() {
   `;
 }
 
+// Live negotiator form: options come from the wholesaler catalog (live DB prices & stock), not hard-coded lists.
+function negSuggestedMax(price) { return Math.round(price * 0.93 * 2) / 2; }
+
+function negProductOptions(rows, selected) {
+  return html`${rows.map(r => html`<option value="${r.product}" ${r.product === selected ? "selected" : ""}>${r.product} - ${inr(r.price)}/${r.unit} (${num(r.stock_qty)} ${r.unit} in stock)</option>`)}`;
+}
+
 async function aiNeg() {
   const cat = await api("/catalog");
+  S.catalog = cat;
   const wholesalers = [...new Map(cat.map(c => [c.wholesaler_id, c])).values()];
   const neg = S.neg;
+
+  const nf = S.negForm || {};
+  const wid = wholesalers.some(w => w.wholesaler_id === nf.wholesaler_id) ? nf.wholesaler_id : (wholesalers[0] ? wholesalers[0].wholesaler_id : 0);
+  const rows = cat.filter(c => c.wholesaler_id === wid);
+  const row = rows.find(r => r.product === nf.product) || rows[0];
+  const qty = nf.qty || Math.min(50, row ? row.stock_qty : 50);
+  const maxP = nf.max_price || (row ? negSuggestedMax(row.price) : 0);
+
+  const total = neg && neg.transcript ? neg.transcript.length : 0;
+  const shown = neg ? Math.min(S.negShown == null ? total : S.negShown, total) : 0;
+  const finished = neg && shown >= total;
 
   return html`
     <div class="card hl mb">
       <h3>Autonomous Faratin Price Negotiator</h3>
-      <p class="sm muted">Buyer and Seller AI agents negotiate price within 6 rounds using time-dependent concession curves. The wholesaler's floor price stays completely private.</p>
+      <p class="sm muted">Buyer and Seller AI agents negotiate price within 6 rounds using time-dependent concession curves, starting from the wholesaler's live catalog price and stock. The wholesaler's floor price stays completely private.</p>
       <form data-f="negotiate" class="form mt">
         <div class="field">
           <label for="negW">Wholesaler</label>
           <select id="negW" name="wholesaler_id" required>
-            ${wholesalers.map(w => html`<option value="${w.wholesaler_id}">${w.shop} (${w.city})</option>`)}
+            ${wholesalers.map(w => html`<option value="${w.wholesaler_id}" ${w.wholesaler_id === wid ? "selected" : ""}>${w.shop} (${w.city})</option>`)}
           </select>
         </div>
         <div class="field">
-          <label for="negProd">Product</label>
-          <select id="negProd" name="product" required>
-            <option value="Rice" selected>Rice</option>
-            <option value="Sugar">Sugar</option>
-            <option value="Sunflower Oil">Sunflower Oil</option>
-            <option value="Toor Dal">Toor Dal</option>
-          </select>
+          <label for="negProd">Product (live catalog)</label>
+          <select id="negProd" name="product" required>${negProductOptions(rows, row && row.product)}</select>
         </div>
         <div class="field">
           <label for="negQty">Quantity</label>
-          <input id="negQty" name="qty" type="number" min="10" step="any" value="50" required>
+          <input id="negQty" name="qty" type="number" min="1" step="any" value="${qty}" required>
         </div>
         <div class="field">
           <label for="negMax">Max price per unit you will pay (₹)</label>
-          <input id="negMax" name="max_price" type="number" step="0.5" value="52" required>
+          <input id="negMax" name="max_price" type="number" step="0.5" min="0.5" value="${maxP}" required>
         </div>
-        <button class="btn cyan lg">⚡ Start Autonomous Haggling</button>
+        <button class="btn cyan lg" ${S.negBusy ? "disabled" : ""}>⚡ Start Autonomous Haggling</button>
       </form>
+      <div class="sm muted mt" id="negLive">${row ? html`Live list price: <b>${inr(row.price)}/${row.unit}</b> · stock ${num(row.stock_qty)} ${row.unit}. Suggested limit ${inr(negSuggestedMax(row.price))}/${row.unit}.` : ""}</div>
     </div>
 
     ${neg ? html`
@@ -347,7 +375,7 @@ async function aiNeg() {
             <h3>Negotiation Transcript: ${neg.product} (${neg.qty} ${neg.unit})</h3>
             <div class="sm muted">Wholesaler: ${neg.wholesaler} · List price: ${inr(neg.list_price)}/${neg.unit} · Seller Stance: <span class="badge">${neg.seller_stance || "balanced"}</span></div>
           </div>
-          ${neg.status === "deal" ? html`
+          ${!finished ? html`<span class="badge ai">Negotiating live...</span>` : neg.status === "deal" ? html`
             <div class="right">
               <span class="badge ok" style="font-size:14px">Deal at ${inr(neg.agreed_price)}/${neg.unit}</span>
               <div class="sm ok mt">Saves ${inr(neg.savings)} total</div>
@@ -356,7 +384,7 @@ async function aiNeg() {
         </div>
 
         <div class="chat mt">
-          ${(neg.transcript || []).map(m => html`
+          ${(neg.transcript || []).slice(0, shown).map(m => html`
             <div class="msg ${m.agent} bubble ${m.agent} ${m.agent === "system" && neg.status !== "deal" ? "no" : ""}">
               <b>${m.agent === "buyer" ? "Buyer Agent" : m.agent === "seller" ? "Seller Agent" : "System"}:</b>
               ${m.text}
@@ -364,7 +392,7 @@ async function aiNeg() {
           `)}
         </div>
 
-        ${neg.status === "deal" && !neg.order_id ? html`
+        ${finished && neg.status === "deal" && !neg.order_id ? html`
           <div class="mt row">
             <button class="btn ok lg" data-a="acceptNeg" data-id="${neg.id}">🤝 Accept Deal & Place Order (${inr(neg.agreed_price)}/${neg.unit})</button>
           </div>
@@ -727,7 +755,7 @@ async function vNotifications() {
           ${items.map(n => html`
             <div class="post ${n.is_read ? "" : "hl"}">
               <div class="spread">
-                <span><b>${n.kind.toUpperCase()}</b> · ${n.message}</span>
+                <span><b>${String(n.kind || "").toUpperCase()}</b> · ${n.text}</span>
                 <span class="sm muted">${ago(n.created_at)}</span>
               </div>
             </div>

@@ -241,19 +241,38 @@ document.addEventListener("click", async e => {
 
   if (a === "speechToText") {
     if (!SpeechRec) return;
+    const sel = $("#voiceLang");
+    const lang = (sel && sel.value) || S.voiceLang || "en-IN";
+    S.voiceLang = lang;
+    const label = { "en-IN": "English", "ta-IN": "Tamil", "hi-IN": "Hindi" }[lang] || lang;
     const rec = new SpeechRec();
-    rec.lang = "ta-IN"; // Supports Tamil/Hindi/English
+    rec.lang = lang;           // the recogniser only transcribes one language per session, so the user picks it
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
     rec.onresult = e => {
       const transcript = e.results[0][0].transcript;
       const txt = $("#ptext");
       if (txt) {
         txt.value = transcript;
-        toast(`Voice input: "${transcript}"`);
+        S.procText = transcript;
+        toast(`Voice input (${label}): "${transcript}"`);
       }
     };
-    rec.onerror = () => toast("Speech recognition error", true);
+    rec.onerror = ev => toast(ev && ev.error === "not-allowed" ? "Microphone permission denied" : "Speech recognition error", true);
     rec.start();
-    toast("Listening... Speak in Tamil, Hindi or English");
+    toast(`Listening in ${label}...`);
+    return;
+  }
+
+  if (a === "addDemandRow") {
+    const rows = $("#demRows");
+    if (rows) rows.insertAdjacentHTML("beforeend", demandRowHtml(true).s);
+    return;
+  }
+
+  if (a === "removeDemandRow") {
+    const row = btn.closest(".dem-row");
+    if (row) row.remove();
     return;
   }
 
@@ -872,14 +891,32 @@ document.addEventListener("submit", async e => {
   }
 
   if (f === "negotiate") {
+    if (S.negBusy) return;
     const wholesaler_id = Number(form.wholesaler_id.value);
     const product = form.product.value;
     const qty = Number(form.qty.value);
     const max_price = Number(form.max_price.value);
-    await act(async () => {
+    S.negForm = { wholesaler_id, product, qty, max_price };
+    S.negBusy = true;
+    try {
+      // Server runs the Faratin negotiation against the live catalog price, floor and stock, then we replay it round by round.
       S.neg = await api("/ai/negotiate", "POST", { wholesaler_id, product, qty, max_price });
+      const total = (S.neg.transcript || []).length;
+      S.negShown = 0;
       await render();
-    });
+      for (let i = 1; i <= total; i++) {
+        await new Promise(r => setTimeout(r, 900));
+        if (S.tab !== "ai" || S.aiTab !== "neg") break;
+        S.negShown = i;
+        await render(true);
+      }
+    } catch (err) {
+      toast(err.message || String(err), true);
+    } finally {
+      S.negBusy = false;
+      S.negShown = null;
+      if (S.tab === "ai" && S.aiTab === "neg") await render(true);
+    }
     return;
   }
 
@@ -915,13 +952,23 @@ document.addEventListener("submit", async e => {
   }
 
   if (f === "auction") {
-    const product = form.product.value;
-    const qty = Number(form.qty.value);
-    const budget = form.budget && form.budget.value ? Number(form.budget.value) : null;
     const note = form.note ? form.note.value : "";
+    const items = [...form.querySelectorAll(".dem-row")].map(row => ({
+      product: row.querySelector("[name=product]").value,
+      qty: Number(row.querySelector("[name=qty]").value),
+      budget: row.querySelector("[name=budget]").value ? Number(row.querySelector("[name=budget]").value) : null
+    }));
+    if (items.length === 0) { toast("Add at least one product", true); return; }
+    const seen = new Set();
+    for (const it of items) {
+      if (seen.has(it.product)) { toast(`${it.product} is listed twice - combine it into one row`, true); return; }
+      seen.add(it.product);
+    }
     await act(async () => {
-      await api("/demands", "POST", { product, qty, budget, note });
-      toast("Demand posted to regional wholesalers!");
+      for (const it of items) {
+        await api("/demands", "POST", { product: it.product, qty: it.qty, budget: it.budget, note });
+      }
+      toast(items.length > 1 ? `${items.length} demands posted to regional wholesalers!` : "Demand posted to regional wholesalers!");
       await render();
     });
     return;
@@ -1188,6 +1235,26 @@ document.addEventListener("submit", async e => {
     });
     return;
   }
+});
+
+// Negotiator: switching wholesaler / product refreshes the live price, stock and suggested limit.
+document.addEventListener("change", async e => {
+  const t = e.target;
+  if (!t || !t.closest || !t.closest("form[data-f=negotiate]")) return;
+  if (t.name !== "wholesaler_id" && t.name !== "product") return;
+  const form = t.closest("form");
+  S.negForm = {
+    wholesaler_id: Number(form.wholesaler_id.value),
+    product: t.name === "wholesaler_id" ? null : form.product.value,
+    qty: null,
+    max_price: null
+  };
+  t.blur();
+  await render(true);
+});
+
+document.addEventListener("change", e => {
+  if (e.target && e.target.id === "voiceLang") S.voiceLang = e.target.value;
 });
 
 // Helper for live filtering popup merchant directory

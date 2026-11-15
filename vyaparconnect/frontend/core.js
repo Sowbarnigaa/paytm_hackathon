@@ -160,7 +160,15 @@ async function switchUser(uid) {
   await render();
 }
 
-async function render(silent = false) {
+function updateBell() {
+  const bell = $("#bellN");
+  if (!bell || !S.me) return;
+  const unread = Number(S.me.unread || 0);
+  bell.textContent = unread;
+  bell.hidden = unread === 0;
+}
+
+function renderNav() {
   const nav = $("#nav");
   if (nav) {
     const tabs = tabsFor();
@@ -193,7 +201,7 @@ async function render(silent = false) {
       </div>
       <div class="seg">
         <div class="seg-h"><span>Quick Actions</span></div>
-        <button class="ni sm" data-a="gotoNotifs">
+        <button class="ni sm ${S.tab === "notifs" ? "on" : ""}" data-a="gotoNotifs">
           <span class="dot"></span>
           <span>Notifications</span>
           ${S.me && S.me.unread > 0 ? html`<span class="cnt">${S.me.unread}</span>` : ""}
@@ -201,6 +209,11 @@ async function render(silent = false) {
       </div>
     `.s;
   }
+  updateBell();
+}
+
+async function render(silent = false) {
+  renderNav();
 
   const views = {
     home: vHome,
@@ -228,5 +241,22 @@ async function render(silent = false) {
   S.lastHtml = s;
   const appEl = $("#app");
   if (appEl) appEl.innerHTML = s;
+  renderNav(); // views such as Notifications change the unread count while loading
   if (!silent) window.scrollTo(0, 0);
 }
+
+// Live notification polling: keeps the bell / sidebar badge current and refreshes the Notifications page.
+setInterval(async () => {
+  if (document.hidden || !S.me || !S.uid) return;
+  try {
+    const prev = Number(S.me.unread || 0);
+    const fresh = await api("/me");
+    S.me.unread = fresh.unread;
+    if (S.tab === "notifs") {
+      if (Number(fresh.unread || 0) > 0) await render(true);
+    } else if (Number(fresh.unread || 0) !== prev) {
+      renderNav();
+      if (Number(fresh.unread || 0) > prev) toast("You have a new notification");
+    }
+  } catch { /* ignore transient polling errors */ }
+}, 10000);
